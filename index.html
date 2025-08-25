@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>클래스어라운드 카카오톡 입장자 체크봇</title>
+  <style>
+    /* ===== Light + Sky theme ===== */
+    :root{
+      --bg:#ffffff;            /* page background */
+      --card:#ffffff;          /* card background */
+      --surface:#f8fafc;       /* subtle surfaces */
+      --line:#e5e7eb;          /* borders */
+      --text:#0f172a;          /* main text (very dark navy) */
+      --muted:#64748b;         /* secondary text */
+      --accent:#60a5fa;        /* sky blue 400 */
+      --accent-strong:#3b82f6; /* sky/blue 500 for hover */
+      --ok:#22c55e;            /* green 500 */
+      --warn:#f59e0b;          /* amber 500 */
+      --bad:#ef4444;           /* red 500 */
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:980px;margin:28px auto;padding:0 16px}
+    h1{font-size:22px;margin:0 0 8px}
+    .sub{color:var(--muted);margin-bottom:20px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}
+    .grid{display:grid;gap:12px}
+    @media(min-width:880px){.grid.cols-3{grid-template-columns:1.2fr 1fr 1fr}}
+    label{display:block;color:var(--muted);margin-bottom:6px}
+    input[type=file], textarea{width:100%;background:#fff;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 12px;outline:none}
+    textarea{min-height:120px;resize:vertical}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .btn{appearance:none;border:1px solid var(--line);background:#fff;color:var(--text);padding:10px 14px;border-radius:12px;cursor:pointer;transition:all .15s ease}
+    .btn:hover{border-color:var(--accent-strong);box-shadow:0 0 0 3px rgba(96,165,250,.2)}
+    .btn.acc{background:var(--accent);border-color:var(--accent);color:#fff}
+    .btn.acc:hover{background:var(--accent-strong);border-color:var(--accent-strong)}
+    .pill{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:#fff}
+    .pill.ok{border-color:rgba(34,197,94,.25);color:var(--ok)}
+    .pill.warn{border-color:rgba(245,158,11,.25);color:var(--warn)}
+    .pill.bad{border-color:rgba(239,68,68,.25);color:var(--bad)}
+    table{width:100%;border-collapse:collapse;border:1px solid var(--line);overflow:auto;background:#fff;border-radius:12px}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+    th{color:#0f172a;font-weight:600;background:#f1f5f9;position:sticky;top:0}
+    .hint{color:var(--muted);font-size:12px}
+    .footer{color:var(--muted);font-size:12px;margin-top:24px}
+    .err{color:#ef4444;font-family:ui-monospace,monospace}
+    /* Brand */
+    .brand{display:flex;align-items:center;gap:10px;margin:2px 0 14px}
+    .logo{height:64px;width:auto;display:block}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="brand">
+  <!-- 내장 SVG 로고: Class Around -->
+  <svg class="logo" viewBox="0 0 220 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Class Around">
+    <!-- 점 아이콘 -->
+    <circle cx="178" cy="10" r="6" fill="#3b82f6"/>
+    <circle cx="196" cy="20" r="3" fill="#ef4444"/>
+    <!-- 워드마크 -->
+    <text x="0" y="30" font-size="28" font-weight="700" fill="#0f172a" font-family="Inter, Segoe UI, Arial, Helvetica, sans-serif">Class</text>
+    <text x="0" y="54" font-size="28" font-weight="700" fill="#0f172a" font-family="Inter, Segoe UI, Arial, Helvetica, sans-serif">Around</text>
+  </svg>
+</header>
+
+    <h1>클래스어라운드 카카오톡 입장자 체크봇 <span class="hint">· 이름/4자리 또는 이름 공백 4자리</span></h1>
+    <div class="sub">카톡 대화 <span class="hint">.txt</span>와 참석 대상 <span class="hint">roster.txt</span>(한 줄에 한 이름)를 넣고 <b>실행</b>을 누르세요. 모든 처리는 <b>브라우저 안에서만</b> 이뤄집니다.</div>
+
+    <div class="card grid cols-3">
+      <div>
+        <label>1) 카카오톡 대화 <span class="hint">.txt</span></label>
+        <input id="chatFile" type="file" accept=".txt" />
+        <div class="hint">예: <em>… 권지혁/3788님이 입장하셨습니다.</em> 또는 <em>… 권지혁 3788님이 입장하셨습니다.</em></div>
+      </div>
+      <div>
+        <label>2) 참석 대상 <span class="hint">roster.txt</span> (이름만)</label>
+        <input id="rosterFile" type="file" accept=".txt" />
+        <div class="hint">또는 오른쪽 칸에 직접 붙여넣기</div>
+      </div>
+      <div>
+        <label>로스터 직접 입력(선택)</label>
+        <textarea id="rosterText" placeholder="한 줄에 한 명"></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <button id="runBtn" class="btn acc">실행</button>
+        <button id="demoBtn" class="btn">데모로 테스트</button>
+        <span id="pills" class="row"></span>
+      </div>
+      <div id="err" class="err" style="margin-top:8px"></div>
+      <div class="hint" style="margin-top:8px">인식 패턴: <b>(이름)/(4자리)</b> 또는 <b>(이름) (4자리)</b> 또는 <b>(이름)(4자리)</b> (띄어쓰기 없이도 인식).</div>
+    </div>
+
+    <div id="results" class="grid" style="gap:16px"></div>
+
+    <div class="footer">Clean Build · 데이터는 서버로 전송되지 않습니다.</div>
+  </div>
+
+<script>
+// ===== 패턴 =====
+const JOIN_PAT = /(.*?)님이\s*(입장하셨습니다|들어왔습니다|입장했습니다|들어오셨습니다)\./;
+const LEAVE_PAT = /(.*?)님이\s*(퇴장하셨습니다|나갔습니다|퇴장했습니다|나가셨습니다)\./;
+// 이름 뒤에 공백 또는 슬래시 + 4자리
+const NICK_PATTERN = /^\s*([A-Za-z0-9가-힣·\s]+?)\s*[\/-]?\s*(\d{4})\s*$/;
+
+// ===== 유틸 =====
+const $$ = (id)=>document.getElementById(id);
+function setError(msg){ $$("err").textContent = msg||""; }
+function setPills({joined,left,exceptions}){
+  const el=$$("pills"); el.innerHTML='';
+  const pill=(txt,cls)=>{const s=document.createElement('span'); s.className='pill '+cls; s.textContent=txt; return s;};
+  el.appendChild(pill(`입장 ${joined}`,'ok'));
+  el.appendChild(pill(`퇴장 ${left}`,'bad'));
+  el.appendChild(pill(`예외 ${exceptions}`,'warn'));
+}
+function csvEscape(v){ if(v==null)v=""; const s=String(v); if(/[",\n]/.test(s)) return '"'+s.replace(/"/g,'""')+'"'; return s; }
+function toCSV(rows){ return rows.map(r=> r.map(csvEscape).join(",")).join("\r\n"); }
+function downloadCSV(name, rows){ const blob=new Blob(["\ufeff"+toCSV(rows)],{type:"text/csv;charset=utf-8;"}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),500); }
+
+async function readText(file){ return await file.text(); }
+
+function parseChat(text){
+  const lines=text.split(/\r?\n/);
+  const joined=[], left=[];
+  for(const raw of lines){
+    const line=raw.trim(); if(!line) continue;
+    let m=line.match(JOIN_PAT); if(m){ joined.push(m[1].trim()); continue; }
+    m=line.match(LEAVE_PAT); if(m){ left.push(m[1].trim()); continue; }
+  }
+  return {joined,left};
+}
+function splitNickname(nick){
+  const m=nick.match(NICK_PATTERN);
+  if(!m) return null;
+  return {name:m[1].trim(), digits:m[2]};
+}
+
+function showTable(title, headers, rows, downloads){
+  const wrap=document.createElement('div'); wrap.className='card';
+  const top=document.createElement('div'); top.className='row';
+  const h=document.createElement('h3'); h.textContent=title; h.style.margin='0 8px 0 0'; top.appendChild(h);
+  (downloads||[]).forEach(d=>{ const b=document.createElement('button'); b.className='btn'; b.textContent=d.label; b.onclick=d.onClick; top.appendChild(b); });
+  wrap.appendChild(top);
+  const table=document.createElement('table');
+  const thead=document.createElement('thead'); const trh=document.createElement('tr');
+  headers.forEach(x=>{ const th=document.createElement('th'); th.textContent=x; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);
+  const tbody=document.createElement('tbody');
+  rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent = (c==null?'':String(c)); tr.appendChild(td); }); tbody.appendChild(tr); });
+  table.appendChild(tbody); wrap.appendChild(table);
+  $$("results").appendChild(wrap);
+}
+
+function processAndRender({chatText, rosterNames}){
+  const {joined,left}=parseChat(chatText);
+  const byNameDigits=new Map();
+  const exceptions=[];
+  for(const nick of joined){
+    const s=splitNickname(nick);
+    if(!s){ exceptions.push(nick); continue; }
+    if(!byNameDigits.has(s.name)) byNameDigits.set(s.name,new Set());
+    byNameDigits.get(s.name).add(s.digits);
+  }
+  const rosterSet=new Set(rosterNames);
+  const report=[], extra=[], raw=joined.map(j=>[j]), exRows=exceptions.map(e=>[e]);
+  for(const name of rosterNames){
+    const set=byNameDigits.get(name)||new Set();
+    if(set.size===0) report.push([name,'미입장','','']);
+    else if(set.size===1){ const only=[...set][0]; report.push([name,'입장',`${name}/${only}`,'']); }
+    else { const ids=[...set].sort().map(d=>`${name}/${d}`).join('; '); report.push([name,'동명이인 확인필요',ids,'같은 이름으로 서로 다른 4자리 번호가 다수 발견됨(자동 미입장 처리)']); }
+  }
+  ;[...byNameDigits.entries()].sort(([a],[b])=>a.localeCompare(b,'ko')).forEach(([name,digits])=>{
+    if(!rosterSet.has(name)) [...digits].sort().forEach(d=> extra.push([`${name}/${d}`]));
+  });
+
+  // 렌더
+  $$("results").innerHTML='';
+  setPills({joined:joined.length,left:left.length,exceptions:exceptions.length});
+  showTable('내 명단 기준 상태 (attendance_report.csv)', ['name','status','matched_id','notes'], report,[{label:'CSV 저장', onClick:()=>downloadCSV('attendance_report.csv', [['name','status','matched_id','notes'],...report])}]);
+  showTable('명단 외 입장자 (joined_extra.csv)', ['joined_but_not_in_roster'], extra,[{label:'CSV 저장', onClick:()=>downloadCSV('joined_extra.csv', [['joined_but_not_in_roster'],...extra])}]);
+  showTable('예외 입장자 (exceptions_joined.csv)', ['exception_nickname(no_name/4digits)'], exRows,[{label:'CSV 저장', onClick:()=>downloadCSV('exceptions_joined.csv', [['exception_nickname(no_name/4digits)'],...exRows])}]);
+  showTable('원시 입장 로그 (raw_joins.csv)', ['joined_nickname'], raw,[{label:'CSV 저장', onClick:()=>downloadCSV('raw_joins.csv', [['joined_nickname'],...raw])}]);
+}
+
+async function runMain(){
+  try{
+    setError('');
+    const chatFile=$$("chatFile").files[0];
+    const rosterFile=$$("rosterFile").files[0];
+    const rosterText=$$("rosterText").value.trim();
+    if(!chatFile) { setError('대화 txt 파일을 선택하세요.'); return; }
+    const chatText=await readText(chatFile);
+    let rosterNames=[];
+    if(rosterText){ rosterNames=rosterText.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); }
+    else if(rosterFile){ const t=await readText(rosterFile); rosterNames=t.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); }
+    else { setError('명단 파일을 업로드하거나 텍스트로 입력하세요.'); return; }
+    processAndRender({chatText, rosterNames});
+  }catch(err){ setError('오류: '+ err.message); console.error(err); }
+}
+
+function runDemo(){
+  setError('');
+  const rosterNames=['권지혁','김민정','홍길동'];
+  const chatText=[
+    '2025.08.10 오후 8:01 - 권지혁/3788님이 입장하셨습니다.',
+    '2025.08.10 오후 8:02 - 김민정 1122님이 들어왔습니다.',
+    '2025.08.10 오후 8:03 - 홍길동/9999님이 입장하셨습니다.',
+    '2025.08.10 오후 8:04 - 홍길동 1234님이 입장하셨습니다.',
+    '2025.08.10 오후 8:05 - 민수님이 입장하셨습니다.',
+    '2025.08.10 오후 8:06 - 영희님이 퇴장하셨습니다.'
+  ].join('\n');
+  processAndRender({chatText, rosterNames});
+}
+
+// DOM 로드 후 바인딩
+window.addEventListener('DOMContentLoaded', ()=>{
+  $$("runBtn").addEventListener('click', runMain);
+  $$("demoBtn").addEventListener('click', runDemo);
+});
+</script>
+</body>
+</html>
