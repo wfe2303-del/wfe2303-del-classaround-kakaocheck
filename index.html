@@ -105,7 +105,7 @@
             <select id="readSheetSelect" style="min-width:180px"></select>
             <select id="writeSheetSelect" style="min-width:180px"></select>
           </div>
-          <div class="hint">공유 시트는 <b>D(이름)→E(전화끝4)</b> 순으로 매칭, 결과는 <b>S</b>에 기록.</div>
+          <div class="hint">공유 시트는 <b>D(이름)→E(전화끝4)</b> 순으로 매칭, 결과는 <b>S</b>에 기록(미입장은 빈칸).</div>
         </div>
       </div>
 
@@ -155,12 +155,11 @@
 
 <script>
 /* =====================[ 상수: 시작 행 ]===================== */
-// 1-based 시작 행 (필요 시 숫자만 바꾸세요)
-const READ_START_ROW  = 2; // 읽기 시트(명단) 시작 행
-const WRITE_START_ROW = 2; // 공유 시트(상태) 시작 행
+const READ_START_ROW  = 2; // 읽기 시트(명단) 시작 행 (1-based)
+const WRITE_START_ROW = 2; // 공유 시트(상태) 시작 행 (1-based)
 
 /* =====================[ 공통 / OAuth ]===================== */
-const CLIENT_ID = "18228268359-iifm4ck3j9kqj74eh1p90tco1k2mbpi0.apps.googleusercontent.com"; // ★ 교체하세요
+const CLIENT_ID = "YOUR_CLIENT_ID.apps.googleusercontent.com"; // ★ 교체하세요
 
 const $$ = (id)=>document.getElementById(id);
 function setErr(msg){ $$("err").textContent = msg||""; }
@@ -191,12 +190,7 @@ function extractSheetId(urlOrId){
   const m = String(urlOrId).match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : urlOrId.trim();
 }
-function lettersToIndex(letters){ let s=letters.toUpperCase(); let n=0; for(let i=0;i<s.length;i++){ n = n*26 + (s.charCodeAt(i)-64);} return n-1; }
-function sanitizeColumn(input){ if(!input) return null; let s=String(input).trim().toUpperCase().replace(/\s|열/g,''); if(!s) return null; if(/^\d+$/.test(s)){ // 숫자→알파벳
-    let n=parseInt(s,10), out=''; while(n>0){ let r=(n-1)%26; out=String.fromCharCode(65+r)+out; n=Math.floor((n-1)/26);} return out;
-  }
-  if(/^[A-Z]+$/.test(s)) return s; return null;
-}
+function sanitizeColumn(input){ if(!input) return null; let s=String(input).trim().toUpperCase().replace(/\s|열/g,''); if(!s) return null; if(/^\d+$/.test(s)){let n=parseInt(s,10), out=''; while(n>0){ let r=(n-1)%26; out=String.fromCharCode(65+r)+out; n=Math.floor((n-1)/26);} return out;} if(/^[A-Z]+$/.test(s)) return s; return null; }
 // 전화번호에서 숫자만 남기고 끝 4자리
 function last4Digits(s){ const d = String(s || '').replace(/\D/g, ''); return d.slice(-4); }
 
@@ -238,7 +232,7 @@ async function batchUpdateValues(spreadsheetId, dataRanges){
 }
 
 /* =====================[ 관리자: 스프레드시트 등록 ]===================== */
-const PACKS_KEY='ca_gsapi_sources_v2';
+const PACKS_KEY='ca_gsapi_sources_v3';
 const loadPacks=()=>{ try{return JSON.parse(localStorage.getItem(PACKS_KEY)||'[]');}catch(e){return [];} };
 const savePacks=(ps)=> localStorage.setItem(PACKS_KEY, JSON.stringify(ps));
 const addPack=(p)=>{ const a=loadPacks(); a.push(p); savePacks(a); };
@@ -362,7 +356,7 @@ async function runMain(){
     const roster = (data.values||[]).map(r => String(r[0]??'').trim()).filter(Boolean);
     const rosterSet = new Set(roster);
 
-    // 3) 보고서 만들기 (동명이인: digits 다수면 "동명이인 확인필요" 처리)
+    // 3) 보고서 만들기
     const report=[];
     for(const name of roster){
       const set=activeByName.get(name)||new Set();
@@ -371,26 +365,28 @@ async function runMain(){
       else { const ids=[...set].sort().map(d=>`${name}/${d}`).join('; '); report.push([name,'동명이인 확인필요',ids,'전화 미입력 등으로 모호']); }
     }
 
+    // 3-1) 예외/명단 외 입장자 계산
+    const extraJoined = [];
+    [...activeByName.entries()].sort(([a],[b])=>a.localeCompare(b,'ko')).forEach(([name,set])=>{
+      if(!rosterSet.has(name)) [...set].sort().forEach(d => extraJoined.push([`${name}/${d}`]));
+    });
+    const exRows = exceptionsJoin.map(e => [e]);
+
     // 4) 공유 시트의 D(이름), E(전화) 를 읽어 S열(상태) 갱신 (WRITE_START_ROW부터)
-    //    매칭 규칙:
-    //      1) 이름(D) 일치로 후보
-    //      2) 동명이인이면 전화(E) 끝4로 재매칭
-    //         - 전화 없고 동명이인이면 모호 → 기록 X
-    //      3) 이름만 있고(set.size===1)이면 '입장'
+    //    매칭: D로 1차, 동명이인이면 E 전화 끝4로 2차. 전화 없고 동명이인이면 기록 생략.
     const writeRange = `${writeSheet}!D${WRITE_START_ROW}:S`; // D..S
     const wdata = await getRange(sheetId, writeRange);
     const rows = wdata.values || [];
     const updates = [];
-
     const S_INDEX = 15; // D..S 범위에서 S의 인덱스(D=0 → S=15)
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i] || [];
       const name = String(r[0] ?? '').trim();     // D
       const phone = String(r[1] ?? '').trim();    // E
-      if (!name || (WRITE_START_ROW===2 && name==='이름')) continue; // 헤더/빈행 스킵
+      if (!name || (WRITE_START_ROW===2 && name==='이름')) continue;
 
-      // 명단(읽기 시트)에 없는 이름은 보통 스킵 (원치 않으면 이 조건 제거)
+      // 명단에 없는 이름이면 스킵 (원하면 제거 가능)
       if (!rosterSet.has(name)) continue;
 
       const set = activeByName.get(name) || new Set();
@@ -400,31 +396,26 @@ async function runMain(){
         newStatus = '미입장';
       } else {
         const p4 = last4Digits(phone);
-        if (p4) {
-          newStatus = set.has(p4) ? '입장' : '미입장';
-        } else {
-          if (set.size === 1) newStatus = '입장';
-          else newStatus = null; // 동명이인 + 전화없음 → 모호 → 기록 생략
-        }
+        if (p4) newStatus = set.has(p4) ? '입장' : '미입장';
+        else newStatus = (set.size === 1) ? '입장' : null; // 동명이인 + 전화없음 → 모호
       }
 
-     if (newStatus !== null) {
-  const rowNumber = WRITE_START_ROW + i; // 실제 시트 행 번호
-  // ★ newStatus가 '입장'일 때만 '입장'을 쓰고, 그 외(미입장)는 빈칸으로 비움
-  const val = (newStatus === '입장') ? '입장' : '';
-  updates.push({ range: `${writeSheet}!S${rowNumber}`, values: [[val]] });
-
-  // 미리보기에도 반영
-  if (r.length <= S_INDEX) r[S_INDEX] = val; else r[S_INDEX] = val;
-}
+      if (newStatus !== null) {
+        const rowNumber = WRITE_START_ROW + i; // 실제 시트 행 번호
+        const val = (newStatus === '입장') ? '입장' : ''; // ★ 미입장은 빈칸
+        updates.push({ range: `${writeSheet}!S${rowNumber}`, values: [[val]] });
+        if (r.length <= S_INDEX) r[S_INDEX] = val; else r[S_INDEX] = val;
+      }
     }
 
     if (updates.length) await batchUpdateValues(sheetId, updates);
 
-    // 5) UI 렌더
+    // 5) UI 렌더: 명단 → (추가) 예외/명단외 → 갱신결과
     $$("results").innerHTML='';
     setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
     showTable('내 명단 기준 상태', ['name','status','matched_id','notes'], report);
+    showTable('예외 입장자 (패턴 미일치)', ['raw_nickname'], exRows);
+    showTable('명단 외 입장자', ['name/last4'], extraJoined);
     showTable('공유 시트 갱신 결과', ['updated_cells'], updates.map(u=>[u.range+' ← '+u.values[0][0]]));
 
   }catch(e){ setErr('오류: '+e.message); console.error(e); }
@@ -443,6 +434,7 @@ function runDemo(){
     '2025.08.10 오후 8:06 - 권지혁/3788님이 입장하셨습니다.',
     '2025.08.10 오후 8:07 - 영희/1234님이 입장하셨습니다.',
     '2025.08.10 오후 8:08 - 영희님이 나갔습니다.',
+    '2025.08.10 오후 8:09 - 민수님이 입장하셨습니다.',
   ].join('\n');
 
   const {events, joinedCount, leftCount}=parseChat(chatText);
@@ -451,15 +443,20 @@ function runDemo(){
     if(ev.type==='join'){ const s=splitNickname(ev.nick); if(!s){ exceptionsJoin.push(ev.nick); continue; } ensure(s.name).add(s.digits); }
     else if(ev.type==='leave'){ const s=splitNickname(ev.nick); if(s){ ensure(s.name).delete(s.digits);} }
   }
-  const report=[];
-  roster.forEach(name=>{
+  const report=[]; roster.forEach(name=>{
     const set=activeByName.get(name)||new Set();
     if(set.size===0) report.push([name,'미입장','','']);
     else if(set.size===1){ const only=[...set][0]; report.push([name,'입장',`${name}/${only}`,'']); }
     else report.push([name,'동명이인 확인필요',[...set].join(', '),'']);
   });
+  const rosterSet=new Set(roster);
+  const extraJoined=[]; [...activeByName.entries()].forEach(([name,set])=>{ if(!rosterSet.has(name)) [...set].forEach(d=>extraJoined.push([`${name}/${d}`])); });
+  const exRows=exceptionsJoin.map(e=>[e]);
+
   setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
-  showTable('데모 결과', ['name','status','matched_id','notes'], report);
+  showTable('데모 결과 - 내 명단 기준 상태', ['name','status','matched_id','notes'], report);
+  showTable('데모 결과 - 예외 입장자', ['raw_nickname'], exRows);
+  showTable('데모 결과 - 명단 외 입장자', ['name/last4'], extraJoined);
 }
 
 /* =====================[ 이벤트 바인딩 ]===================== */
