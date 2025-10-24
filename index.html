@@ -408,11 +408,15 @@ async function runMain(){
         }
       }
 
-      if (newStatus !== null) {
-        const rowNumber = WRITE_START_ROW + i; // 실제 시트 행 번호
-        updates.push({ range: `${writeSheet}!S${rowNumber}`, values: [[newStatus]] });
-        if (r.length <= S_INDEX) r[S_INDEX] = newStatus; else r[S_INDEX] = newStatus;
-      }
+     if (newStatus !== null) {
+  const rowNumber = WRITE_START_ROW + i; // 실제 시트 행 번호
+  // ★ newStatus가 '입장'일 때만 '입장'을 쓰고, 그 외(미입장)는 빈칸으로 비움
+  const val = (newStatus === '입장') ? '입장' : '';
+  updates.push({ range: `${writeSheet}!S${rowNumber}`, values: [[val]] });
+
+  // 미리보기에도 반영
+  if (r.length <= S_INDEX) r[S_INDEX] = val; else r[S_INDEX] = val;
+}
     }
 
     if (updates.length) await batchUpdateValues(sheetId, updates);
