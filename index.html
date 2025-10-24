@@ -3,7 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>클래스어라운드 카카오톡 입장자 체크봇</title>
+  <title>클래스어라운드 · 카카오톡 입장자 체크봇 (Sheets API)</title>
+
+  <!-- Google Identity Services (OAuth) -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
   <style>
     :root{
       --bg:#fff; --card:#fff; --surface:#f8fafc; --line:#e5e7eb; --text:#0f172a; --muted:#64748b;
@@ -17,14 +21,11 @@
     .sub{color:var(--muted);margin-bottom:14px}
     .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}
     label{display:block;color:var(--muted);margin-bottom:6px}
-    select, textarea, .file-input{
+    select, textarea, input[type=text], .file-input{
       width:100%; background:#fff; color:var(--text); border:1px solid var(--line);
       border-radius:var(--radius); padding:10px 12px; outline:none; height:var(--ctl-h);
     }
-    select{height:var(--ctl-h)}
     textarea{height:56px; resize:vertical}
-    .file-input{display:flex; align-items:center; gap:8px}
-    .file-input input[type=file]{width:100%}
     .btn{
       appearance:none; border:1px solid var(--line); background:#fff; color:var(--text);
       padding:10px 14px; border-radius:var(--radius); cursor:pointer; transition:all .15s ease;
@@ -34,11 +35,9 @@
     .btn.acc{background:var(--accent);border-color:var(--accent);color:#fff}
     .btn.acc:hover{background:var(--accent-strong);border-color:var(--accent-strong)}
     .btn.icon{width:var(--ctl-h); padding:0}
-    .actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
-    .hint{color:var(--muted);font-size:12px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .hint{color:#64748b;font-size:12px}
     .err{color:#ef4444;font-family:ui-monospace,monospace}
-    .brand{display:flex;align-items:center;gap:10px;margin:2px 0 14px}
-    .logo{height:64px;width:auto;display:block}
     .pill{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:#fff}
     .pill.ok{border-color:rgba(34,197,94,.25);color:var(--ok)}
     .pill.warn{border-color:rgba(245,158,11,.25);color:var(--warn)}
@@ -47,12 +46,10 @@
     th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
     th{color:#0f172a;font-weight:600;background:#f1f5f9;position:sticky;top:0}
 
-    /* 상단 컨트롤: 3열(데스크탑), 2열(태블릿), 1열(모바일) */
     .controls-grid{display:grid;gap:var(--gap);align-items:end}
-    @media(min-width:1000px){ .controls-grid{grid-template-columns:1.2fr 1fr 1fr} }
+    @media(min-width:1000px){ .controls-grid{grid-template-columns:1.2fr 1.1fr 1fr} }
     @media(min-width:640px) and (max-width:999px){ .controls-grid{grid-template-columns:1fr 1fr} }
 
-    /* Admin UI (그대로) */
     .gear-btn{position:fixed;top:16px;right:16px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer}
     .gear-btn:hover{border-color:var(--accent-strong);box-shadow:0 0 0 3px rgba(96,165,250,.2)}
     .admin-overlay{position:fixed;inset:0;background:rgba(15,23,42,.28);backdrop-filter:saturate(140%) blur(2px);display:none;z-index:60}
@@ -60,7 +57,6 @@
     .admin-head{display:flex;align-items:center;justify-content:space-between}
     .x-btn{appearance:none;border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 8px;cursor:pointer}
     .x-btn:hover{border-color:#94a3b8}
-    .table-wrap{border:1px solid var(--line);border-radius:12px;overflow:hidden}
   </style>
 </head>
 <body>
@@ -68,16 +64,21 @@
   <button id="settingsBtn" class="gear-btn" title="설정" type="button" aria-label="관리자 설정 열기">⚙</button>
 
   <div class="wrap">
-    <header class="brand">
-      <svg class="logo" viewBox="0 0 220 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Class Around">
-        <circle cx="178" cy="10" r="6" fill="#3b82f6"/><circle cx="196" cy="20" r="3" fill="#ef4444"/>
-        <text x="0" y="30" font-size="28" font-weight="700" fill="#0f172a" font-family="Inter, Segoe UI, Arial, Helvetica, sans-serif">Class</text>
-        <text x="0" y="54" font-size="28" font-weight="700" fill="#0f172a" font-family="Inter, Segoe UI, Arial, Helvetica, sans-serif">Around</text>
-      </svg>
-    </header>
+    <h1>클래스어라운드 카카오톡 입장자 체크봇</h1>
+    <div class="sub">
+      1) <b>Google 로그인</b> 후, 2) <b>관리자(⚙)</b>에서 <b>스프레드시트 링크 + 읽을 열</b>을 등록, 3) 메인에서 <b>읽기 시트</b>/<b>공유 시트</b>를 선택해 실행합니다.
+      공유 시트는 <b>D열=이름</b>, <b>C열=코드(4자리 등)</b>, <b>S열=상태</b> 규칙을 사용합니다.
+    </div>
 
-    <h1>클래스어라운드 카카오톡 입장자 체크봇 <span class="hint">· 이름/4자리 또는 이름 공백 4자리</span></h1>
-    <div class="sub">카톡 대화 <span class="hint">.txt</span>와 <b>엑셀 시트</b> + <b>수동 추가 이름</b>을 합쳐 비교합니다.</div>
+    <!-- 로그인/상태 -->
+    <div class="card">
+      <div class="row">
+        <button id="gsLoginBtn" class="btn acc" type="button">Google 로그인</button>
+        <button id="gsLogoutBtn" class="btn" type="button">로그아웃</button>
+        <span id="authState" class="hint">미로그인</span>
+      </div>
+      <div id="authErr" class="err" style="margin-top:6px"></div>
+    </div>
 
     <!-- 상단 컨트롤 -->
     <div class="card">
@@ -85,96 +86,83 @@
         <!-- 1) 카톡 txt -->
         <div>
           <label>카카오톡 대화 <span class="hint">.txt</span></label>
-          <div class="file-input"><input id="chatFile" type="file" accept=".txt" /></div>
-          <div class="hint">예: <em>… 권지혁/3788님이 입장하셨습니다.</em></div>
+          <input id="chatFile" type="file" accept=".txt" />
+          <div class="hint">예: “… 권지혁/3788님이 입장하셨습니다.”</div>
         </div>
 
-        <!-- 2) 엑셀/시트 -->
+        <!-- 2) 스프레드시트 선택 + 시트 선택 -->
         <div>
-          <label>엑셀 / 시트</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <select id="excelSelect" style="min-width:180px"></select>
-            <select id="sheetSelect" style="min-width:160px"></select>
-            <button id="refreshSheets" class="btn icon" type="button" title="목록 새로고침" aria-label="목록 새로고침">
-              <!-- refresh icon -->
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M3 12a9 9 0 1 0 3-6.7" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
-                <path d="M3 4v4h4" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
+          <label>로스터 소스 (스프레드시트)</label>
+          <div class="row">
+            <select id="sheetPackSelect" style="min-width:220px"></select>
+            <button id="refreshMeta" class="btn" type="button">시트 목록 새로고침</button>
           </div>
-          <div class="hint">적용 열: <b id="currentColHint">-</b> · 시트 항목: <b id="currentSheetCount">-</b>명</div>
+          <div class="hint">읽을 열: <b id="readColHint">-</b></div>
         </div>
 
-        <!-- 3) 수동 추가 -->
+        <!-- 3) 읽기 시트 / 공유 시트 -->
         <div>
-          <label>수동 추가 이름(선택) <span class="hint">한 줄에 한 명</span></label>
-          <textarea id="manualAddText" placeholder="예)\n홍길동\n이수연"></textarea>
-          <div class="hint">수동 추가: <b id="extraCount">0</b>명 · 합계: <b id="totalCount">-</b>명</div>
+          <label>읽기 시트 / 공유 시트</label>
+          <div class="row">
+            <select id="readSheetSelect" style="min-width:180px"></select>
+            <select id="writeSheetSelect" style="min-width:180px"></select>
+          </div>
+          <div class="hint">공유 시트는 <b>C열(코드) + D열(이름)</b>으로 개체 매칭, <b>S열</b>에 결과를 씁니다.</div>
         </div>
       </div>
 
-      <!-- 아래 버튼줄 -->
-      <div class="actions">
+      <div class="row" style="margin-top:10px">
         <button id="runBtn" class="btn acc" type="button">실행</button>
         <button id="demoBtn" class="btn" type="button">데모</button>
-        <button id="clearChoice" class="btn" type="button">선택 해제</button>
+        <span id="pills" class="row"></span>
       </div>
-    </div>
-
-    <div class="card">
-      <span id="pills" class="row"></span>
       <div id="err" class="err" style="margin-top:8px"></div>
-      <div class="hint" style="margin-top:8px">인식 패턴: <b>(이름)/(4자리)</b> 또는 <b>(이름) (4자리)</b> 또는 <b>(이름)(4자리)</b>.</div>
     </div>
 
-    <div id="results" class="grid" style="gap:16px"></div>
-    <div class="footer">Clean Build · 데이터는 서버로 전송되지 않습니다.</div>
+    <div id="results" style="display:grid;gap:16px"></div>
   </div>
 
-  <!-- 관리자 드로어(기존 그대로) -->
+  <!-- 관리자 드로어 -->
   <div id="adminOverlay" class="admin-overlay"></div>
   <aside id="adminDrawer" class="admin-drawer">
     <div class="admin-head">
       <h3 style="margin:0">관리자 설정</h3>
       <button id="closeAdmin" class="x-btn" type="button">닫기</button>
     </div>
+
     <div class="card" style="margin:0">
-      <h4 style="margin:0 0 8px">엑셀 업로드(여러 개) & 적용 열</h4>
-      <label>표시 이름(선택) <span class="hint">미입력 시 파일명 사용</span></label>
-      <input id="admLabel" class="file-input" type="text" placeholder="예: 4기 전체 명단" />
-      <label style="margin-top:10px">적용 열(A~) <span class="hint">예: C / C열 / 3(=C)</span></label>
-      <input id="admColLetter" class="file-input" type="text" placeholder="예: C" />
-      <label style="margin-top:10px">엑셀 파일(.xlsx/.xls/.csv)</label>
-      <div class="file-input"><input id="admExcelFile" type="file" accept=".xlsx,.xls,.csv" /></div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button id="admAddPack" class="btn" type="button">추가 업로드</button>
+      <h4 style="margin:0 0 8px">스프레드시트 연결 추가</h4>
+      <label>표시 이름(선택)</label>
+      <input id="admLabel" type="text" placeholder="예: 4기 운영 시트" />
+      <label style="margin-top:10px">스프레드시트 링크(URL)</label>
+      <input id="admUrl" type="text" placeholder="https://docs.google.com/spreadsheets/d/..." />
+      <label style="margin-top:10px">읽을 열(A~) <span class="hint">명단이 들어있는 열(예: C)</span></label>
+      <input id="admReadCol" type="text" value="C" />
+      <div class="row" style="margin-top:10px">
+        <button id="admAdd" class="btn" type="button">연결 추가</button>
         <button id="admClearAll" class="btn" type="button">전체 삭제</button>
       </div>
       <div id="admErr" class="err" style="margin-top:8px"></div>
     </div>
-    <div class="table-wrap" style="margin-top:12px">
+
+    <div class="card" style="margin-top:12px">
+      <h4 style="margin:0 0 8px">등록된 스프레드시트</h4>
       <table style="width:100%;border-collapse:collapse">
-        <thead><tr><th style="background:#f1f5f9">엑셀(라벨)</th><th style="background:#f1f5f9">시트수</th><th style="background:#f1f5f9">열</th><th style="background:#f1f5f9">작업</th></tr></thead>
-        <tbody id="admPackList"><tr><td colspan="4" style="color:#64748b">업로드된 엑셀이 없습니다.</td></tr></tbody>
+        <thead><tr><th style="background:#f1f5f9">라벨</th><th style="background:#f1f5f9">시트수</th><th style="background:#f1f5f9">읽을 열</th><th style="background:#f1f5f9">작업</th></tr></thead>
+        <tbody id="admList"><tr><td colspan="4" style="color:#64748b">없음</td></tr></tbody>
       </table>
-      <div class="hint" id="admMetaHint" style="margin-top:6px"></div>
+      <div class="hint" id="admMeta" style="margin-top:6px"></div>
     </div>
   </aside>
 
-  <!-- SheetJS -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
 <script>
-// ===== 패턴 =====
-const JOIN_PAT = /(.*?)님이\s*(입장하셨습니다|들어왔습니다|입장했습니다|들어오셨습니다)\./;
-const LEAVE_PAT = /(.*?)님이\s*(퇴장하셨습니다|나갔습니다|퇴장했습니다|나가셨습니다)\./;
-const NICK_PATTERN = /^\s*([A-Za-z0-9가-힣·\s]+?)\s*[\/-]?\s*(\d{4})\s*$/;
+/* =====================[ 0) 공통 / OAuth ]===================== */
+const CLIENT_ID = "18228268359-iifm4ck3j9kqj74eh1p90tco1k2mbpi0.apps.googleusercontent.com"; // ★ 교체하세요
 
-// ===== 유틸 =====
 const $$ = (id)=>document.getElementById(id);
-function setError(msg){ $$("err").textContent = msg||""; }
-function setAdmError(msg){ $$("admErr").textContent = msg||""; }
+function setErr(msg){ $$("err").textContent = msg||""; }
+function setAdmErr(msg){ $$("admErr").textContent = msg||""; }
+function setAuthErr(msg){ $$("authErr").textContent = msg||""; }
 function setPills({joined,left,exceptions}){
   const el=$$("pills"); el.innerHTML='';
   const pill=(txt,cls)=>{const s=document.createElement('span'); s.className='pill '+cls; s.textContent=txt; return s;};
@@ -182,126 +170,139 @@ function setPills({joined,left,exceptions}){
   el.appendChild(pill(`퇴장 ${left}`,'bad'));
   el.appendChild(pill(`예외 ${exceptions}`,'warn'));
 }
-function csvEscape(v){ if(v==null)v=""; const s=String(v); if(/[",\n]/.test(s)) return '"'+s.replace(/"/g,'""')+'"'; return s; }
-function toCSV(rows){ return rows.map(r=> r.map(csvEscape).join(",")).join("\r\n"); }
-function downloadCSV(name, rows){ const blob=new Blob(["\ufeff"+toCSV(rows)],{type:"text/csv;charset=utf-8;"}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),500); }
-async function readText(file){ return await file.text(); }
-
-// ===== Excel Packs 저장 =====
-const PACKS_KEY = 'ca_excel_packs_v1';
-const loadPacks = ()=>{ try{return JSON.parse(localStorage.getItem(PACKS_KEY)||'[]');}catch(e){return [];} };
-const savePacks = (packs)=> localStorage.setItem(PACKS_KEY, JSON.stringify(packs));
-const addPack = (pack)=>{ const p=loadPacks(); p.push(pack); savePacks(p); };
-const removePack = (id)=> savePacks(loadPacks().filter(p=>p.id!==id));
-const clearAllPacks = ()=> localStorage.removeItem(PACKS_KEY);
-
-function numberToLetters(n){ let s=''; while(n>0){ let r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=Math.floor((n-1)/26);} return s; }
-function lettersToIndex(letters){ let s=letters.toUpperCase(); let n=0; for(let i=0;i<s.length;i++){ n = n*26 + (s.charCodeAt(i)-64);} return n-1; }
-function sanitizeColumn(input){ if(!input) return null; let s=String(input).trim().toUpperCase().replace(/\s|열/g,''); if(!s) return null; if(/^\d+$/.test(s)) return numberToLetters(parseInt(s,10)); if(/^[A-Z]+$/.test(s)) return s; return null; }
-
-async function parseExcelToSheets(file, colLetter){
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, {type:'array'});
-  const idx = lettersToIndex(colLetter || 'A');
-  const sheets = [];
-  wb.SheetNames.forEach(name=>{
-    const ws = wb.Sheets[name];
-    if(!ws) return;
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, blankrows:false});
-    const set = new Set();
-    rows.forEach(r=>{ const v=(r[idx]==null?'':String(r[idx]).trim()); if(v) set.add(v); });
-    sheets.push({ name, values: Array.from(set), count: set.size });
-  });
-  return { sheets };
+function showTable(title, headers, rows){
+  const wrap=document.createElement('div'); wrap.className='card';
+  const h=document.createElement('h3'); h.textContent=title; h.style.margin='0 0 8px'; wrap.appendChild(h);
+  const table=document.createElement('table');
+  const thead=document.createElement('thead'); const trh=document.createElement('tr');
+  headers.forEach(x=>{ const th=document.createElement('th'); th.textContent=x; trh.appendChild(th); });
+  thead.appendChild(trh); table.appendChild(thead);
+  const tbody=document.createElement('tbody');
+  rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent=(c==null?'':String(c)); tr.appendChild(td); }); tbody.appendChild(tr); });
+  table.appendChild(tbody); wrap.appendChild(table);
+  $$("results").appendChild(wrap);
 }
 
-// ===== Admin Rendering =====
-function renderPackList(){
-  const packs = loadPacks();
-  const tb = $$("admPackList"); tb.innerHTML='';
-  if(!packs.length){ tb.innerHTML = '<tr><td colspan="4" style="color:#64748b">업로드된 엑셀이 없습니다.</td></tr>'; $$("admMetaHint").textContent=''; return; }
-  packs.forEach(p=>{
+function extractSheetId(urlOrId){
+  if(!urlOrId) return '';
+  const m = String(urlOrId).match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : urlOrId.trim();
+}
+function lettersToIndex(letters){ let s=letters.toUpperCase(); let n=0; for(let i=0;i<s.length;i++){ n = n*26 + (s.charCodeAt(i)-64);} return n-1; }
+function sanitizeColumn(input){ if(!input) return null; let s=String(input).trim().toUpperCase().replace(/\s|열/g,''); if(!s) return null; if(/^\d+$/.test(s)){ // 숫자→알파벳
+    let n=parseInt(s,10), out=''; while(n>0){ let r=(n-1)%26; out=String.fromCharCode(65+r)+out; n=Math.floor((n-1)/26);} return out;
+  }
+  if(/^[A-Z]+$/.test(s)) return s; return null;
+}
+
+// OAuth
+let accessToken=null, tokenClient=null;
+function initAuth(){
+  try{
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
+      prompt: '',
+      callback: (res)=>{ accessToken = res.access_token; $$("authState").textContent='로그인 완료'; setAuthErr(''); }
+    });
+  }catch(e){ setAuthErr('OAuth 초기화 실패: ' + e.message); }
+}
+function requestAccess(){ if(!tokenClient){ setAuthErr('OAuth 초기화 필요'); return; } tokenClient.requestAccessToken({prompt:'consent'}); }
+function revokeAccess(){ if(accessToken){ google.accounts.oauth2.revoke(accessToken, ()=>{ accessToken=null; $$("authState").textContent='미로그인'; }); } }
+function requireAuth(){ if(!accessToken) throw new Error('먼저 Google 로그인하세요.'); }
+
+// Sheets REST
+async function gFetch(url, init){
+  requireAuth();
+  const res = await fetch(url, { ...(init||{}), headers: { ...(init&&init.headers||{}), Authorization:'Bearer '+accessToken, 'Content-Type':'application/json' }});
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+async function listSheets(spreadsheetId){
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets(properties(title))`;
+  const data = await gFetch(url);
+  return (data.sheets||[]).map(s=>s.properties.title);
+}
+async function getRange(spreadsheetId, rangeA1){
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(rangeA1)}`;
+  return await gFetch(url);
+}
+async function batchUpdateValues(spreadsheetId, dataRanges){
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`;
+  return await gFetch(url, { method:'POST', body: JSON.stringify({ valueInputOption:'USER_ENTERED', data: dataRanges })});
+}
+
+/* =====================[ 1) 관리자: 스프레드시트 등록 ]===================== */
+const PACKS_KEY='ca_gsapi_sources_v1';
+const loadPacks=()=>{ try{return JSON.parse(localStorage.getItem(PACKS_KEY)||'[]');}catch(e){return [];} };
+const savePacks=(ps)=> localStorage.setItem(PACKS_KEY, JSON.stringify(ps));
+const addPack=(p)=>{ const a=loadPacks(); a.push(p); savePacks(a); };
+const removePack=(id)=> savePacks(loadPacks().filter(p=>p.id!==id));
+const clearPacks=()=> localStorage.removeItem(PACKS_KEY);
+
+async function admAdd(){
+  try{
+    setAdmErr('');
+    const label = ($$("admLabel").value.trim() || "스프레드시트");
+    const sheetId = extractSheetId($$("admUrl").value.trim());
+    const readCol = sanitizeColumn($$("admReadCol").value) || 'C';
+    if(!sheetId) throw new Error('스프레드시트 링크/ID를 입력하세요.');
+    const titles = await listSheets(sheetId); // OAuth 필요
+    const pack = { id:`${Date.now()}_${Math.random().toString(36).slice(2,7)}`, label, sheetId, readCol, sheets: titles };
+    addPack(pack);
+    $$("admLabel").value=$$("admUrl").value=''; $$("admReadCol").value='C';
+    renderAdmList(); populatePacks(); alert('연결 완료! 메인에서 선택하세요.');
+  }catch(e){ setAdmErr(e.message); }
+}
+function renderAdmList(){
+  const list=loadPacks(); const tb=$$("admList"); tb.innerHTML='';
+  if(!list.length){ tb.innerHTML='<tr><td colspan="4" style="color:#64748b">없음</td></tr>'; $$("admMeta").textContent=''; return; }
+  list.forEach(p=>{
     const tr=document.createElement('tr');
-    tr.innerHTML = `<td>${p.label}</td><td>${p.sheets.length}</td><td>${p.colLetter}</td><td><button class="btn" type="button" data-del="${p.id}">삭제</button></td>`;
+    tr.innerHTML=`<td>${p.label}</td><td>${p.sheets?.length||0}</td><td>${p.readCol}</td><td><button class="btn" data-del="${p.id}">삭제</button></td>`;
     tb.appendChild(tr);
   });
-  tb.querySelectorAll('button[data-del]').forEach(b=> b.addEventListener('click', e=>{ removePack(e.target.getAttribute('data-del')); renderPackList(); populateExcelSelect(); }) );
-  $$("admMetaHint").textContent = `총 ${packs.length}개 엑셀 저장됨 · ${new Date().toLocaleString()} 기준`;
+  tb.querySelectorAll('button[data-del]').forEach(b=> b.onclick=()=>{ removePack(b.getAttribute('data-del')); renderAdmList(); populatePacks(); });
+  $$("admMeta").textContent = `총 ${list.length}개 연결 · ${new Date().toLocaleString()}`;
 }
-function labelFromFilename(name){ return (name||'').replace(/\.[^.]+$/, ''); }
-async function admAddPack(){
+
+/* =====================[ 2) 메인: 소스/시트 선택 ]===================== */
+function populatePacks(){
+  const packs=loadPacks(); const sel=$$("sheetPackSelect"); sel.innerHTML='';
+  if(!packs.length){ sel.appendChild(new Option('(관리자에서 스프레드시트 연결)','')); $$("readColHint").textContent='-'; $$("readSheetSelect").innerHTML=''; $$("writeSheetSelect").innerHTML=''; return; }
+  sel.appendChild(new Option('스프레드시트 선택',''));
+  packs.forEach(p=> sel.appendChild(new Option(p.label, p.id)));
+  const prev=sessionStorage.getItem('ca_prev_pack'); if(prev){ const o=[...sel.options].find(x=>x.value===prev); if(o) o.selected=true; }
+  onPackChanged();
+}
+async function refreshMeta(){
   try{
-    setAdmError('');
-    if(typeof XLSX==='undefined') throw new Error('엑셀 파서(XLSX) 불러오기 실패. 인터넷 연결을 확인하세요.');
-    const file = $$("admExcelFile").files[0];
-    if(!file) throw new Error('엑셀 파일을 선택하세요.');
-    const colLetter = sanitizeColumn($$("admColLetter").value)||'A';
-    const label = ($$("admLabel").value.trim() || labelFromFilename(file.name));
-    const parsed = await parseExcelToSheets(file, colLetter);
-    const id = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-    addPack({ id, label, colLetter, updatedAt:new Date().toISOString(), sheets: parsed.sheets });
-    $$("admExcelFile").value=''; $$("admLabel").value='';
-    renderPackList(); populateExcelSelect();
-    alert('업로드 완료! 메인 화면에서 엑셀/시트를 선택하세요.');
-  }catch(err){ setAdmError(err.message); }
+    const id=$$("sheetPackSelect").value; if(!id) return;
+    const packs=loadPacks(); const idx=packs.findIndex(p=>p.id===id); if(idx<0) return;
+    const titles = await listSheets(packs[idx].sheetId);
+    packs[idx].sheets = titles; savePacks(packs); onPackChanged();
+  }catch(e){ setErr('시트 목록 갱신 실패: '+e.message); }
 }
-function admClearAll(){ if(confirm('모든 저장된 엑셀을 삭제할까요?')){ clearAllPacks(); renderPackList(); populateExcelSelect(); } }
-
-// ===== 카운트 표시 =====
-const getManualExtras = () => ($$("manualAddText").value||"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-function updateCountHint(){
-  const excelCountTxt = $$("currentSheetCount").textContent;
-  const excelCount = /^\d+$/.test(excelCountTxt) ? parseInt(excelCountTxt,10) : 0;
-  const extra = getManualExtras().length;
-  $$("extraCount").textContent = String(extra);
-  $$("totalCount").textContent = (excelCount>0 || extra>0) ? String(excelCount + extra) : '-';
+function onPackChanged(){
+  const id=$$("sheetPackSelect").value; sessionStorage.setItem('ca_prev_pack', id||'');
+  const packs=loadPacks(); const p=packs.find(x=>x.id===id);
+  const readSel=$$("readSheetSelect"), writeSel=$$("writeSheetSelect");
+  readSel.innerHTML=''; writeSel.innerHTML='';
+  if(!p){ $$("readColHint").textContent='-'; return; }
+  $$("readColHint").textContent=p.readCol;
+  readSel.appendChild(new Option('읽기 시트 선택','')); writeSel.appendChild(new Option('공유 시트 선택',''));
+  (p.sheets||[]).forEach(t=>{ readSel.appendChild(new Option(t,t)); writeSel.appendChild(new Option(t,t)); });
 }
 
-// ===== 메인 드롭다운 =====
-function populateExcelSelect(){
-  const packs = loadPacks();
-  const excelSel = $$("excelSelect"); const sheetSel = $$("sheetSelect");
-  excelSel.innerHTML=''; sheetSel.innerHTML='';
-  if(!packs.length){
-    excelSel.appendChild(new Option('(관리자에서 엑셀 업로드)',''));
-    sheetSel.appendChild(new Option('(시트 없음)',''));
-    $$("currentColHint").textContent='-'; $$("currentSheetCount").textContent='-';
-    updateCountHint(); return;
-  }
-  excelSel.appendChild(new Option('엑셀 선택',''));
-  packs.forEach(p=> excelSel.appendChild(new Option(p.label, p.id)) );
-  const prevId = sessionStorage.getItem('ca_prev_excel'); if(prevId){ const opt=[...excelSel.options].find(o=>o.value===prevId); if(opt) opt.selected=true; }
-  onExcelChanged();
-}
-function onExcelChanged(){
-  const packs = loadPacks();
-  const excelSel = $$("excelSelect");
-  const sheetSel = $$("sheetSelect");
-  const id = excelSel.value; sessionStorage.setItem('ca_prev_excel', id||'');
-  sheetSel.innerHTML='';
-  if(!id){ $$("currentColHint").textContent='-'; $$("currentSheetCount").textContent='-'; sheetSel.appendChild(new Option('(엑셀 선택 먼저)','')); updateCountHint(); return; }
-  const pack = packs.find(p=>p.id===id); if(!pack){ $$("currentColHint").textContent='-'; updateCountHint(); return; }
-  $$("currentColHint").textContent = pack.colLetter;
-  sheetSel.appendChild(new Option('시트 선택',''));
-  pack.sheets.forEach(s=> sheetSel.appendChild(new Option(`${s.name} (${s.count})`, s.name)) );
-  const prevSheet = sessionStorage.getItem('ca_prev_sheet'); if(prevSheet){ const f=[...sheetSel.options].find(o=>o.value===prevSheet); if(f) f.selected=true; }
-  onSheetChanged();
-}
-function onSheetChanged(){
-  const packs = loadPacks();
-  const excelId = $$("excelSelect").value; const sheet = $$("sheetSelect").value; sessionStorage.setItem('ca_prev_sheet', sheet||'');
-  if(!excelId || !sheet){ $$("currentSheetCount").textContent='-'; updateCountHint(); return; }
-  const pack = packs.find(p=>p.id===excelId); if(!pack) return;
-  const s = pack.sheets.find(x=>x.name===sheet);
-  $$("currentSheetCount").textContent = s ? s.count : '-';
-  updateCountHint();
-}
-function clearChoice(){ $$("excelSelect").value=''; onExcelChanged(); }
+/* =====================[ 3) 카톡 로그 파싱 ]===================== */
+const JOIN_PAT = /(.*?)님이\s*(입장하셨습니다|들어왔습니다|입장했습니다|들어오셨습니다)\./;
+const LEAVE_PAT = /(.*?)님이\s*(퇴장하셨습니다|나갔습니다|퇴장했습니다|나가셨습니다)\./;
+const NICK_PATTERN = /^\s*([A-Za-z0-9가-힣·\s]+?)\s*[\/-]?\s*(\d{4})\s*$/;
 
-// ===== 파서 & 리포트 =====
+async function readText(file){ return await file.text(); }
 function parseChat(text){
   const lines=text.split(/\r?\n/);
-  const events=[]; let joinedCount=0, leftCount=0;
+  const events=[]; let joinedCount=0,leftCount=0;
   for(const raw of lines){
     const line=raw.trim(); if(!line) continue;
     let m=line.match(JOIN_PAT); if(m){ events.push({type:'join', nick:m[1].trim(), raw:line}); joinedCount++; continue; }
@@ -309,96 +310,130 @@ function parseChat(text){
   }
   return {events, joinedCount, leftCount};
 }
-function splitNickname(nick){ const m=nick.match(NICK_PATTERN); if(!m) return null; return {name:m[1].trim(), digits:m[2]}; }
-
-function showTable(title, headers, rows, downloads){
-  const wrap=document.createElement('div'); wrap.className='card';
-  const top=document.createElement('div'); top.style.display='flex'; top.style.gap='10px'; top.style.alignItems='center';
-  const h=document.createElement('h3'); h.textContent=title; h.style.margin='0 8px 0 0'; top.appendChild(h);
-  (downloads||[]).forEach(d=>{ const b=document.createElement('button'); b.className='btn'; b.type='button'; b.textContent=d.label; b.onclick=d.onClick; top.appendChild(b); });
-  wrap.appendChild(top);
-  const table=document.createElement('table');
-  const thead=document.createElement('thead'); const trh=document.createElement('tr');
-  headers.forEach(x=>{ const th=document.createElement('th'); th.textContent=x; trh.appendChild(th); }); thead.appendChild(trh); table.appendChild(thead);
-  const tbody=document.createElement('tbody');
-  rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent = (c==null?'':String(c)); tr.appendChild(td); }); tbody.appendChild(tr); });
-  table.appendChild(tbody); wrap.appendChild(table);
-  $$("results").appendChild(wrap);
+function splitNickname(nick){
+  const m=nick.match(NICK_PATTERN); if(!m) return null;
+  return {name:m[1].trim(), digits:m[2]};
 }
 
-function processAndRender({chatText, rosterNames}){
-  const {events, joinedCount, leftCount}=parseChat(chatText);
-  const activeByName=new Map();
-  const exceptionsJoin=[]; const rawJoins=[];
-  const ensure = (name)=>{ if(!activeByName.has(name)) activeByName.set(name,new Set()); return activeByName.get(name); };
-
-  for(const ev of events){
-    if(ev.type==='join'){
-      rawJoins.push([ev.nick]);
-      const s=splitNickname(ev.nick);
-      if(!s){ exceptionsJoin.push(ev.nick); continue; }
-      ensure(s.name).add(s.digits);
-    }else if(ev.type==='leave'){
-      const s=splitNickname(ev.nick);
-      if(s){ ensure(s.name).delete(s.digits); }
-      else { const name=ev.nick.trim(); if(activeByName.has(name)){ const set=activeByName.get(name); if(set.size===1){ set.delete([...set][0]); } } }
-    }
-  }
-
-  const rosterSet=new Set(rosterNames);
-  const report=[], extra=[], exRows=exceptionsJoin.map(e=>[e]);
-  for(const name of rosterNames){
-    const set=activeByName.get(name)||new Set();
-    if(set.size===0) report.push([name,'미입장','','']);
-    else if(set.size===1){ const only=[...set][0]; report.push([name,'입장',`${name}/${only}`,'']); }
-    else { const ids=[...set].sort().map(d=>`${name}/${d}`).join('; '); report.push([name,'동명이인 확인필요',ids,'같은 이름으로 서로 다른 4자리 번호가 다수 발견됨(자동 미입장 처리)']); }
-  }
-  [...activeByName.entries()].sort(([a],[b])=>a.localeCompare(b,'ko')).forEach(([name,dset])=>{ if(!rosterSet.has(name)) [...dset].sort().forEach(d=> extra.push([`${name}/${d}`])); });
-
-  $$("results").innerHTML='';
-  setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
-  showTable('내 명단 기준 상태 (attendance_report.csv)', ['name','status','matched_id','notes'], report,
-    [{label:'CSV 저장', onClick:()=>downloadCSV('attendance_report.csv', [['name','status','matched_id','notes'],...report])}]
-  );
-  showTable('명단 외 입장자 (joined_extra.csv)', ['joined_but_not_in_roster'], extra,
-    [{label:'CSV 저장', onClick:()=>downloadCSV('joined_extra.csv', [['joined_but_not_in_roster'],...extra])}]
-  );
-  showTable('예외 입장자 (exceptions_joined.csv)', ['exception_nickname(no_name/4digits)'], exRows,
-    [{label:'CSV 저장', onClick:()=>downloadCSV('exceptions_joined.csv', [['exception_nickname(no_name/4digits)'],...exRows])}]
-  );
-  showTable('원시 입장 로그 (raw_joins.csv)', ['joined_nickname'], rawJoins,
-    [{label:'CSV 저장', onClick:()=>downloadCSV('raw_joins.csv', [['joined_nickname'],...rawJoins])}]
-  );
-}
-
-// 엑셀 + 수동추가 합치기
-async function resolveRosterNames(){
-  const packs = loadPacks();
-  const id = $$("excelSelect").value; const sheetName=$$("sheetSelect").value;
-  if(!id) throw new Error('엑셀을 선택하세요.');
-  if(!sheetName) throw new Error('시트를 선택하세요.');
-  const pack = packs.find(p=>p.id===id); if(!pack) throw new Error('선택한 엑셀을 찾을 수 없습니다.');
-  const s=pack.sheets.find(x=>x.name===sheetName); if(!s) throw new Error('선택한 시트를 찾을 수 없습니다.');
-  const base = s.values || [];
-  const extras = getManualExtras();
-  const set = new Set(base); extras.forEach(n=> set.add(n));
-  return Array.from(set);
-}
-
-// 실행/데모
+/* =====================[ 4) 실행: 읽기 → 판정 → 공유시트 쓰기 ]===================== */
 async function runMain(){
   try{
-    setError('');
-    const chatFile=$$("chatFile").files[0];
-    if(!chatFile) { setError('대화 txt 파일을 선택하세요.'); return; }
-    const chatText=await readText(chatFile);
-    const rosterNames = await resolveRosterNames();
-    processAndRender({chatText, rosterNames});
-  }catch(err){ setError('오류: '+ err.message); console.error(err); }
+    setErr(''); $$("results").innerHTML='';
+    const chatFile=$$("chatFile").files[0]; if(!chatFile) throw new Error('대화 txt 파일을 선택하세요.');
+    const packId=$$("sheetPackSelect").value; if(!packId) throw new Error('스프레드시트를 선택하세요.');
+    const readSheet=$$("readSheetSelect").value; if(!readSheet) throw new Error('읽기 시트를 선택하세요.');
+    const writeSheet=$$("writeSheetSelect").value; if(!writeSheet) throw new Error('공유 시트를 선택하세요.');
+
+    const packs=loadPacks(); const pack=packs.find(x=>x.id===packId); if(!pack) throw new Error('연결 정보를 찾을 수 없습니다.');
+    const sheetId=pack.sheetId; const readCol=pack.readCol||'C';
+
+    // 1) 카톡 파싱 → 현재 입장자 집합 계산
+    const chatText = await readText(chatFile);
+    const {events, joinedCount, leftCount} = parseChat(chatText);
+
+    const activeByName = new Map(); // name -> Set(digits)
+    const exceptionsJoin=[]; const rawJoins=[];
+    const ensure=(name)=>{ if(!activeByName.has(name)) activeByName.set(name,new Set()); return activeByName.get(name); };
+
+    for(const ev of events){
+      if(ev.type==='join'){
+        rawJoins.push([ev.nick]);
+        const s=splitNickname(ev.nick);
+        if(!s){ exceptionsJoin.push(ev.nick); continue; }
+        ensure(s.name).add(s.digits);
+      }else if(ev.type==='leave'){
+        const s=splitNickname(ev.nick);
+        if(s){ ensure(s.name).delete(s.digits); }
+        else { const name=ev.nick.trim(); if(activeByName.has(name)){ const set=activeByName.get(name); if(set.size===1){ set.delete([...set][0]); } } }
+      }
+    }
+
+    // 2) 읽기 시트에서 명단 가져오기 (readCol)
+    const data = await getRange(sheetId, `${readSheet}!${readCol}:${readCol}`);
+    const roster = (data.values||[]).map(r => String(r[0]??'').trim()).filter(Boolean);
+    const rosterSet = new Set(roster);
+
+    // 3) 보고서 만들기 (동명이인: digits 다수면 "동명이인 확인 필요"로 처리)
+    const report=[];
+    for(const name of roster){
+      const set=activeByName.get(name)||new Set();
+      if(set.size===0) report.push([name,'미입장','','']);
+      else if(set.size===1){ const only=[...set][0]; report.push([name,'입장',`${name}/${only}`,'']); }
+      else { const ids=[...set].sort().map(d=>`${name}/${d}`).join('; '); report.push([name,'동명이인 확인필요',ids,'같은 이름으로 서로 다른 4자리 번호 다수(자동 미입장)']); }
+    }
+
+    // 4) 공유 시트의 C,D,S 열을 읽어 매칭 후 S에 상태 쓰기
+    //    - 매칭 규칙:
+    //       (1) C(코드)+D(이름) 모두 일치 → 그 사람으로 간주 (동명이인 해결)
+    //       (2) C가 비어있고 D만 일치 → 이름만으로 매칭
+    //       (3) D만 같고 C가 다른 경우 → 다른 사람으로 간주(갱신하지 않음)
+    //    - 상태 선정:
+    //       name이 roster에 있고 activeByName[name]의 set.size===1이고 그 digits==C면 '입장'
+    //       set.size===0 → '미입장'
+    //       set.size>1 → 모호함 → 갱신하지 않음
+    const writeRange = `${writeSheet}!C:S`; // C..S
+    const wdata = await getRange(sheetId, writeRange);
+    const rows = wdata.values || []; // 각 행은 C부터 시작
+    const updates = [];
+
+    // 빠른 조회용 맵
+    const statusByName = new Map();       // name -> '입장' | '미입장' | 'amb'
+    const statusByNameCode = new Map();   // `${name}|${code}` -> '입장'|'미입장'
+    for(const name of roster){
+      const set = activeByName.get(name)||new Set();
+      if(set.size===0){ statusByName.set(name,'미입장'); }
+      else if(set.size===1){ const code=[...set][0]; statusByName.set(name,'입장'); statusByNameCode.set(`${name}|${code}`,'입장'); }
+      else { statusByName.set(name,'amb'); } // 모호
+    }
+
+    // rows[0]가 헤더일 수도 있으니, 첫 행이 D='이름' 이면 건너뜀
+    for(let i=0;i<rows.length;i++){
+      const r = rows[i] || [];
+      const code = String(r[0]??'').trim();       // C
+      const name = String(r[1]??'').trim();       // D
+      const sIdx = 16;                             // C..S 범위에서 S의 index (C=0 → S=16)
+      if(!name || name==='이름') continue;
+
+      let newStatus=null;
+
+      if(code){ // 코드가 있으면 이름+코드로만 매칭
+        const k = `${name}|${code}`;
+        if(statusByNameCode.has(k)) newStatus = statusByNameCode.get(k); 
+        else {
+          // 코드가 있는데 현재 입장 세트에 이 코드가 없으면 '미입장'으로 내림(명단에 있을 때)
+          if(rosterSet.has(name)) newStatus = '미입장';
+        }
+      }else{
+        // 코드 없으면 이름만으로. 단, 모호하면 패스
+        const st = statusByName.get(name);
+        if(st==='입장' || st==='미입장') newStatus = st;
+      }
+
+      if(newStatus){ // 갱신
+        const rowNumber = i+1; // C:S의 첫 행 기준. 실제 시트 행 번호 = rowNumber
+        updates.push({ range:`${writeSheet}!S${rowNumber}`, values:[[newStatus]] });
+        // 메모리상 미리 반영(다음 로직엔 영향 X)
+        if(r.length<=sIdx) r[sIdx]=newStatus; else r[sIdx]=newStatus;
+      }
+    }
+
+    if(updates.length){
+      await batchUpdateValues(sheetId, updates);
+    }
+
+    // 5) UI 렌더
+    $$("results").innerHTML='';
+    setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
+    showTable('내 명단 기준 상태', ['name','status','matched_id','notes'], report);
+    showTable('공유 시트 갱신 결과', ['updated_cells'], updates.map(u=>[u.range+' ← '+u.values[0][0]]));
+
+  }catch(e){ setErr('오류: '+e.message); console.error(e); }
 }
+
+/* =====================[ 5) 데모 ]===================== */
 function runDemo(){
-  setError('');
-  const rosterNames=['권지혁','김민정','홍길동','영희']; // 데모용
+  setErr(''); $$("results").innerHTML='';
+  const roster=['권지혁','김민정','홍길동','영희'];
   const chatText=[
     '2025.08.10 오후 8:01 - 권지혁/3788님이 입장하셨습니다.',
     '2025.08.10 오후 8:02 - 김민정 1122님이 들어왔습니다.',
@@ -408,32 +443,44 @@ function runDemo(){
     '2025.08.10 오후 8:06 - 권지혁/3788님이 입장하셨습니다.',
     '2025.08.10 오후 8:07 - 영희/1234님이 입장하셨습니다.',
     '2025.08.10 오후 8:08 - 영희님이 나갔습니다.',
-    '2025.08.10 오후 8:09 - 민수님이 입장하셨습니다.',
-    '2025.08.10 오후 8:10 - 영희님이 퇴장하셨습니다.'
   ].join('\n');
-  processAndRender({chatText, rosterNames});
+
+  const {events, joinedCount, leftCount}=parseChat(chatText);
+  const activeByName=new Map(); const exceptionsJoin=[]; const ensure=(n)=>{ if(!activeByName.has(n)) activeByName.set(n,new Set()); return activeByName.get(n); };
+  for(const ev of events){
+    if(ev.type==='join'){ const s=splitNickname(ev.nick); if(!s){ exceptionsJoin.push(ev.nick); continue; } ensure(s.name).add(s.digits); }
+    else if(ev.type==='leave'){ const s=splitNickname(ev.nick); if(s){ ensure(s.name).delete(s.digits);} }
+  }
+  const report=[];
+  roster.forEach(name=>{
+    const set=activeByName.get(name)||new Set();
+    if(set.size===0) report.push([name,'미입장','','']);
+    else if(set.size===1){ const only=[...set][0]; report.push([name,'입장',`${name}/${only}`,'']); }
+    else report.push([name,'동명이인 확인필요',[...set].join(', '),'']);
+  });
+  setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
+  showTable('데모 결과', ['name','status','matched_id','notes'], report);
 }
 
-// Admin 열고닫기
-const openAdmin = ()=>{ $$("adminOverlay").style.display='block'; $$("adminDrawer").style.display='flex'; renderPackList(); };
-const closeAdmin = ()=>{ $$("adminOverlay").style.display='none'; $$("adminDrawer").style.display='none'; };
-
-// 바인딩
+/* =====================[ 6) 이벤트 바인딩 ]===================== */
+window.addEventListener('load', ()=>{ if(window.google?.accounts?.oauth2) initAuth(); });
 window.addEventListener('DOMContentLoaded', ()=>{
-  $$("runBtn").addEventListener('click', runMain);
-  $$("demoBtn").addEventListener('click', runDemo);
-  $$("settingsBtn").addEventListener('click', openAdmin);
-  $$("closeAdmin").addEventListener('click', closeAdmin);
-  $$("adminOverlay").addEventListener('click', closeAdmin);
-  $$("admAddPack").addEventListener('click', admAddPack);
-  $$("admClearAll").addEventListener('click', admClearAll);
-  $$("refreshSheets").addEventListener('click', populateExcelSelect);
-  $$("clearChoice").addEventListener('click', clearChoice);
-  $$("excelSelect").addEventListener('change', onExcelChanged);
-  $$("sheetSelect").addEventListener('change', onSheetChanged);
-  $$("manualAddText").addEventListener('input', updateCountHint);
-  populateExcelSelect();
-  updateCountHint();
+  $$("gsLoginBtn").onclick = requestAccess;
+  $$("gsLogoutBtn").onclick = revokeAccess;
+
+  $$("settingsBtn").onclick = ()=>{ $$("adminOverlay").style.display='block'; $$("adminDrawer").style.display='flex'; renderAdmList(); };
+  $$("closeAdmin").onclick = $$("adminOverlay").onclick = ()=>{ $$("adminOverlay").style.display='none'; $$("adminDrawer").style.display='none'; };
+
+  $$("admAdd").onclick = admAdd;
+  $$("admClearAll").onclick = ()=>{ if(confirm('모든 연결을 삭제할까요?')){ clearPacks(); renderAdmList(); populatePacks(); } };
+
+  $$("sheetPackSelect").onchange = onPackChanged;
+  $$("refreshMeta").onclick = refreshMeta;
+
+  $$("runBtn").onclick = runMain;
+  $$("demoBtn").onclick = runDemo;
+
+  populatePacks();
 });
 </script>
 </body>
