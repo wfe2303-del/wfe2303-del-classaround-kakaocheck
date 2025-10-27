@@ -50,8 +50,16 @@
 
     .gear-btn{position:fixed;top:16px;right:16px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px;cursor:pointer}
     .gear-btn:hover{border-color:var(--accent-strong);box-shadow:0 0 0 3px rgba(96,165,250,.2)}
-    .admin-overlay{position:fixed;inset:0;background:rgba(15,23,42,.28);backdrop-filter:saturate(140%) blur(2px);display:none;z-index:60}
-    .admin-drawer{position:fixed;top:0;right:0;height:100%;width:520px;max-width:92vw;background:#fff;border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,.08);padding:16px 16px 24px;display:none;flex-direction:column;gap:12px;z-index:70}
+
+    /* ★ 오버레이를 'display:none' 대신 visibility/pointer-events로 제어 (가로채기 방지) */
+    .admin-overlay{position:fixed;inset:0;background:rgba(15,23,42,.28);backdrop-filter:saturate(140%) blur(2px);
+      visibility:hidden; opacity:0; pointer-events:none; transition:.15s; z-index:60;}
+    .admin-overlay.open{visibility:visible; opacity:1; pointer-events:auto;}
+
+    .admin-drawer{position:fixed;top:0;right:0;height:100%;width:520px;max-width:92vw;background:#fff;border-left:1px solid var(--line);
+      box-shadow:-8px 0 24px rgba(0,0,0,.08);padding:16px 16px 24px;display:flex;flex-direction:column;gap:12px;z-index:70;
+      transform:translateX(12px); opacity:0; pointer-events:none; transition:transform .15s, opacity .15s}
+    .admin-drawer.open{transform:translateX(0); opacity:1; pointer-events:auto;}
     .admin-head{display:flex;align-items:center;justify-content:space-between}
     .x-btn{appearance:none;border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 8px;cursor:pointer}
     .x-btn:hover{border-color:#94a3b8}
@@ -116,8 +124,8 @@
   </div>
 
   <!-- 관리자 드로어 -->
-  <div id="adminOverlay" class="admin-overlay"></div>
-  <aside id="adminDrawer" class="admin-drawer">
+  <div id="adminOverlay" class="admin-overlay" aria-hidden="true"></div>
+  <aside id="adminDrawer" class="admin-drawer" aria-hidden="true">
     <div class="admin-head">
       <h3 style="margin:0">관리자 설정</h3>
       <button id="closeAdmin" class="x-btn" type="button">닫기</button>
@@ -154,15 +162,27 @@ const READ_START_ROW  = 2; // 읽기 시트(명단) 시작 행
 const WRITE_START_ROW = 2; // 공유 시트(상태) 시작 행
 
 /* =====================[ 공통 / OAuth ]===================== */
-const CLIENT_ID = "18228268359-iifm4ck3j9kqj74eh1p90tco1k2mbpi0.apps.googleusercontent.com"; // ← 제공해주신 값
+const CLIENT_ID = "18228268359-iifm4ck3j9kqj74eh1p90tco1k2mbpi0.apps.googleusercontent.com"; // 제공해주신 값
 
+/* ---------- DOM 헬퍼 (세이프 버전) ---------- */
 const $$ = (id)=>document.getElementById(id);
-function setErr(msg){ $$("err").textContent = msg||""; }
-function setAdmErr(msg){ $$("admErr").textContent = msg||""; }
-function setAuthErr(msg){ $$("authErr").textContent = msg||""; }
+const txt = (id, v)=>{ const el=$$(id); if(el) el.textContent=v||""; };
+const val = (id)=>{ const el=$$(id); return el?el.value:""; };
+function on(id, event, handler){
+  const el = $$(id);
+  if(!el){ console.warn("[bind skipped] #"+id+" not found"); return; }
+  el.addEventListener(event, (e)=>{ try{ handler(e); } catch(err){ console.error("handler error for #"+id, err); }});
+}
+function show(el){ el.classList.add('open'); el.setAttribute('aria-hidden','false'); }
+function hide(el){ el.classList.remove('open'); el.setAttribute('aria-hidden','true'); }
+
+/* ---------- 에러/배지 ---------- */
+function setErr(m){ txt("err", m); }
+function setAdmErr(m){ txt("admErr", m); }
+function setAuthErr(m){ txt("authErr", m); }
 function setPills({joined,left,exceptions}){
-  const el=$$("pills"); el.innerHTML='';
-  const pill=(txt,cls)=>{const s=document.createElement('span'); s.className='pill '+cls; s.textContent=txt; return s;};
+  const el=$$("pills"); if(!el) return; el.innerHTML='';
+  const pill=(t,cls)=>{ const s=document.createElement('span'); s.className='pill '+cls; s.textContent=t; return s; };
   el.appendChild(pill(`입장 ${joined}`,'ok'));
   el.appendChild(pill(`퇴장 ${left}`,'bad'));
   el.appendChild(pill(`예외 ${exceptions}`,'warn'));
@@ -175,33 +195,42 @@ function showTable(title, headers, rows){
   headers.forEach(x=>{ const th=document.createElement('th'); th.textContent=x; trh.appendChild(th); });
   thead.appendChild(trh); table.appendChild(thead);
   const tbody=document.createElement('tbody');
-  rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent=(c==null?'':String(c)); tr.appendChild(td); }); tbody.appendChild(tr); });
+  (rows||[]).forEach(r=>{ const tr=document.createElement('tr'); (r||[]).forEach(c=>{ const td=document.createElement('td'); td.textContent=(c==null?'':String(c)); tr.appendChild(td); }); tbody.appendChild(tr); });
   table.appendChild(tbody); wrap.appendChild(table);
-  $$("results").appendChild(wrap);
+  const res=$$("results"); if(res) res.appendChild(wrap);
 }
 
 function extractSheetId(urlOrId){
   if(!urlOrId) return '';
   const m = String(urlOrId).match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  return m ? m[1] : urlOrId.trim();
+  return m ? m[1] : String(urlOrId).trim();
 }
-function sanitizeColumn(input){ if(!input) return null; let s=String(input).trim().toUpperCase().replace(/\s|열/g,''); if(!s) return null; if(/^\d+$/.test(s)){let n=parseInt(s,10), out=''; while(n>0){ let r=(n-1)%26; out=String.fromCharCode(65+r)+out; n=Math.floor((n-1)/26);} return out;} if(/^[A-Z]+$/.test(s)) return s; return null; }
+function sanitizeColumn(input){
+  if(!input) return null;
+  let s=String(input).trim().toUpperCase().replace(/\s|열/g,'');
+  if(!s) return null;
+  if(/^\d+$/.test(s)){ let n=parseInt(s,10), out=''; while(n>0){ let r=(n-1)%26; out=String.fromCharCode(65+r)+out; n=Math.floor((n-1)/26);} return out;}
+  if(/^[A-Z]+$/.test(s)) return s;
+  return null;
+}
 function last4Digits(s){ const d=String(s||'').replace(/\D/g,''); return d.slice(-4); }
 
 /* ===== OAuth (GIS) ===== */
 let accessToken=null, tokenClient=null;
 function initAuth(){
-  if(!window.google?.accounts?.oauth2){ setAuthErr('GIS 로드 실패(네트워크/도메인 확인)'); return; }
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    prompt: '',
-    callback: (res)=>{ accessToken = res.access_token; $$("authState").textContent='로그인 완료'; setAuthErr(''); },
-    error_callback: (err)=>{ setAuthErr('OAuth 오류: ' + (err?.error || err?.type || JSON.stringify(err))); console.error('OAuth error:', err); }
-  });
+  try{
+    if(!window.google?.accounts?.oauth2){ setAuthErr('GIS 로드 실패(네트워크/도메인 확인)'); return; }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
+      prompt: '',
+      callback: (res)=>{ accessToken = res.access_token; txt("authState",'로그인 완료'); setAuthErr(''); },
+      error_callback: (err)=>{ setAuthErr('OAuth 오류: ' + (err?.error || err?.type || JSON.stringify(err))); console.error('OAuth error:', err); }
+    });
+  }catch(e){ setAuthErr('OAuth 초기화 오류'); console.error(e); }
 }
 function requestAccess(){ if(!tokenClient){ setAuthErr('OAuth 초기화 실패'); return; } tokenClient.requestAccessToken({prompt:'consent'}); }
-function revokeAccess(){ if(accessToken){ google.accounts.oauth2.revoke(accessToken, ()=>{ accessToken=null; $$("authState").textContent='미로그인'; }); } }
+function revokeAccess(){ if(accessToken){ google.accounts.oauth2.revoke(accessToken, ()=>{ accessToken=null; txt("authState",'미로그인'); }); } }
 function requireAuth(){ if(!accessToken) throw new Error('먼저 Google 로그인하세요.'); }
 
 /* ===== Sheets REST ===== */
@@ -226,7 +255,7 @@ async function batchUpdateValues(spreadsheetId, dataRanges){
 }
 
 /* =====================[ 관리자: 스프레드시트 등록 ]===================== */
-const PACKS_KEY='ca_gsapi_sources_v5';
+const PACKS_KEY='ca_gsapi_sources_v6';
 const loadPacks=()=>{ try{return JSON.parse(localStorage.getItem(PACKS_KEY)||'[]');}catch(e){return [];} };
 const savePacks=(ps)=> localStorage.setItem(PACKS_KEY, JSON.stringify(ps));
 const addPack=(p)=>{ const a=loadPacks(); a.push(p); savePacks(a); };
@@ -236,36 +265,40 @@ const clearPacks=()=> localStorage.removeItem(PACKS_KEY);
 async function admAdd(){
   try{
     setAdmErr('');
-    const label = ($$("admLabel").value.trim() || "스프레드시트");
-    const sheetId = extractSheetId($$("admUrl").value.trim());
-    const readCol = sanitizeColumn($$("admReadCol").value) || 'C';
+    const label = (val("admLabel").trim() || "스프레드시트");
+    const sheetId = extractSheetId(val("admUrl").trim());
+    const readCol = sanitizeColumn(val("admReadCol")) || 'C';
     if(!sheetId) throw new Error('스프레드시트 링크/ID를 입력하세요.');
     const titles = await listSheets(sheetId); // OAuth 필요
     const pack = { id:`${Date.now()}_${Math.random().toString(36).slice(2,7)}`, label, sheetId, readCol, sheets: titles };
     addPack(pack);
-    $$("admLabel").value=$$("admUrl").value=''; $$("admReadCol").value='C';
+    const a=$$("admLabel"); if(a) a.value='';
+    const b=$$("admUrl"); if(b) b.value='';
+    const c=$$("admReadCol"); if(c) c.value='C';
     renderAdmList(); populatePacks(); alert('연결 완료! 메인에서 선택하세요.');
   }catch(e){ setAdmErr(e.message); }
 }
 function renderAdmList(){
-  const list=loadPacks(); const tb=$$("admList"); tb.innerHTML='';
-  if(!list.length){ tb.innerHTML='<tr><td colspan="4" style="color:#64748b">없음</td></tr>'; $$("admMeta").textContent=''; return; }
+  const list=loadPacks(); const tb=$$("admList"); if(!tb) return; tb.innerHTML='';
+  if(!list.length){ tb.innerHTML='<tr><td colspan="4" style="color:#64748b">없음</td></tr>'; txt("admMeta",''); return; }
   list.forEach(p=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${p.label}</td><td>${p.sheets?.length||0}</td><td>${p.readCol}</td><td><button class="btn" data-del="${p.id}" type="button">삭제</button></td>`;
     tb.appendChild(tr);
   });
-  tb.querySelectorAll('button[data-del]').forEach(b=> b.onclick=()=>{ removePack(b.getAttribute('data-del')); renderAdmList(); populatePacks(); });
-  $$("admMeta").textContent = `총 ${list.length}개 연결 · ${new Date().toLocaleString()}`;
+  tb.querySelectorAll('button[data-del]').forEach(b=> b.addEventListener('click', e=>{ removePack(e.target.getAttribute('data-del')); renderAdmList(); populatePacks(); }));
+  txt("admMeta", `총 ${list.length}개 연결 · ${new Date().toLocaleString()}`);
 }
 
 /* =====================[ 메인: 소스/시트 선택 ]===================== */
 function populatePacks(){
-  const packs=loadPacks(); const sel=$$("sheetPackSelect"); sel.innerHTML='';
+  const packs=loadPacks(); const sel=$$("sheetPackSelect"); if(!sel) return; sel.innerHTML='';
+  const readSel=$$("readSheetSelect"), writeSel=$$("writeSheetSelect");
   if(!packs.length){
     sel.appendChild(new Option('(관리자에서 스프레드시트 연결)',''));
-    $$("readColHint").textContent='-'; $$("readStartHint").textContent=READ_START_ROW; $$("writeStartHint").textContent=WRITE_START_ROW;
-    $$("readSheetSelect").innerHTML=''; $$("writeSheetSelect").innerHTML=''; return;
+    txt("readColHint",'-'); txt("readStartHint",READ_START_ROW); txt("writeStartHint",WRITE_START_ROW);
+    if(readSel) readSel.innerHTML=''; if(writeSel) writeSel.innerHTML='';
+    return;
   }
   sel.appendChild(new Option('스프레드시트 선택',''));
   packs.forEach(p=> sel.appendChild(new Option(p.label, p.id)));
@@ -274,25 +307,28 @@ function populatePacks(){
 }
 async function refreshMeta(){
   try{
-    const id=$$("sheetPackSelect").value; if(!id) return;
+    const sel=$$("sheetPackSelect"); if(!sel) return;
+    const id=sel.value; if(!id) return;
     const packs=loadPacks(); const idx=packs.findIndex(p=>p.id===id); if(idx<0) return;
     const titles = await listSheets(packs[idx].sheetId);
     packs[idx].sheets = titles; savePacks(packs); onPackChanged();
   }catch(e){ setErr('시트 목록 갱신 실패: '+e.message); }
 }
 function onPackChanged(){
-  const id=$$("sheetPackSelect").value; sessionStorage.setItem('ca_prev_pack', id||'');
+  const sel=$$("sheetPackSelect"); if(!sel) return;
+  const id=sel.value; sessionStorage.setItem('ca_prev_pack', id||'');
   const packs=loadPacks(); const p=packs.find(x=>x.id===id);
   const readSel=$$("readSheetSelect"), writeSel=$$("writeSheetSelect");
-  readSel.innerHTML=''; writeSel.innerHTML='';
-  if(!p){ $$("readColHint").textContent='-'; $$("readStartHint").textContent=READ_START_ROW; $$("writeStartHint").textContent=WRITE_START_ROW; return; }
-  $$("readColHint").textContent=p.readCol; $$("readStartHint").textContent=READ_START_ROW; $$("writeStartHint").textContent=WRITE_START_ROW;
-  readSel.appendChild(new Option('읽기 시트 선택','')); writeSel.appendChild(new Option('공유 시트 선택',''));
-  (p.sheets||[]).forEach(t=>{ readSel.appendChild(new Option(t,t)); writeSel.appendChild(new Option(t,t)); });
+  if(readSel) readSel.innerHTML=''; if(writeSel) writeSel.innerHTML='';
+  if(!p){ txt("readColHint",'-'); txt("readStartHint",READ_START_ROW); txt("writeStartHint",WRITE_START_ROW); return; }
+  txt("readColHint",p.readCol); txt("readStartHint",READ_START_ROW); txt("writeStartHint",WRITE_START_ROW);
+  if(readSel) readSel.appendChild(new Option('읽기 시트 선택',''));
+  if(writeSel) writeSel.appendChild(new Option('공유 시트 선택',''));
+  (p.sheets||[]).forEach(t=>{ if(readSel) readSel.appendChild(new Option(t,t)); if(writeSel) writeSel.appendChild(new Option(t,t)); });
 }
 
 /* =====================[ 카톡 로그 파싱 ]===================== */
-// 정규식 완화: 문장 끝의 마침표/느낌표/공백 허용
+// 정규식 완화(끝 문장부호/공백 허용)
 const JOIN_PAT  = /(.*?)님이\s*(입장하셨습니다|들어왔습니다|입장했습니다|들어오셨습니다)[\s\.\!]*$/;
 const LEAVE_PAT = /(.*?)님이\s*(퇴장하셨습니다|나갔습니다|퇴장했습니다|나가셨습니다)[\s\.\!]*$/;
 
@@ -321,13 +357,13 @@ function splitNickname(nick){
 /* =====================[ 실행: 읽기 → 판정 → 공유시트 쓰기 ]===================== */
 async function runMain(){
   try{
-    setErr(''); $$("results").innerHTML='';
-    const chatFile=$$("chatFile").files[0]; if(!chatFile) throw new Error('대화 txt 파일을 선택하세요.');
-    const packId=$$("sheetPackSelect").value; if(!packId) throw new Error('스프레드시트를 선택하세요.');
-    const readSheet=$$("readSheetSelect").value; if(!readSheet) throw new Error('읽기 시트를 선택하세요.');
-    const writeSheet=$$("writeSheetSelect").value; if(!writeSheet) throw new Error('공유 시트를 선택하세요.');
+    setErr(''); const res=$$("results"); if(res) res.innerHTML='';
+    const chatFile=$$("chatFile")?.files?.[0]; if(!chatFile) throw new Error('대화 txt 파일을 선택하세요.');
+    const packSel=$$("sheetPackSelect"); if(!packSel || !packSel.value) throw new Error('스프레드시트를 선택하세요.');
+    const readSheet=val("readSheetSelect"); if(!readSheet) throw new Error('읽기 시트를 선택하세요.');
+    const writeSheet=val("writeSheetSelect"); if(!writeSheet) throw new Error('공유 시트를 선택하세요.');
 
-    const packs=loadPacks(); const pack=packs.find(x=>x.id===packId); if(!pack) throw new Error('연결 정보를 찾을 수 없습니다.');
+    const packs=loadPacks(); const pack=packs.find(x=>x.id===packSel.value); if(!pack) throw new Error('연결 정보를 찾을 수 없습니다.');
     const sheetId=pack.sheetId; const readCol=pack.readCol||'C';
 
     /* 1) 카톡 파싱 → 현재 입장자 계산 */
@@ -338,37 +374,26 @@ async function runMain(){
     const nameOnlyJoin = new Set();       // 번호 없이 이름만 입장
     const exceptionsJoin=[];              // 패턴 미일치 / 로그 참고
     const NAME_ONLY_SENTINEL = '__NAMEONLY__';
-
     const ensure=(name)=>{ if(!activeDigitsByName.has(name)) activeDigitsByName.set(name,new Set()); return activeDigitsByName.get(name); };
 
     for(const ev of events){
       const s=splitNickname(ev.nick);
       if(!s){ exceptionsJoin.push(ev.nick); continue; }
       if(ev.type==='join'){
-        if(s.digits){
-          ensure(s.name).add(s.digits);
-        } else {
-          nameOnlyJoin.add(s.name);
-          ensure(s.name).add(NAME_ONLY_SENTINEL); // 번호 없어도 '입장'으로 인식
-          exceptionsJoin.push(ev.nick); // 참고용
-        }
+        if(s.digits){ ensure(s.name).add(s.digits); }
+        else { nameOnlyJoin.add(s.name); ensure(s.name).add(NAME_ONLY_SENTINEL); exceptionsJoin.push(ev.nick); }
       }else if(ev.type==='leave'){
-        if(s.digits){
-          ensure(s.name).delete(s.digits);
-        } else {
+        if(s.digits){ ensure(s.name).delete(s.digits); }
+        else {
           if(activeDigitsByName.has(s.name)){
             const set=activeDigitsByName.get(s.name);
-            if(set.size===1 && set.has(NAME_ONLY_SENTINEL)){ set.delete(NAME_ONLY_SENTINEL); }
+            if(set.size===1 && set.has(NAME_ONLY_SENTINEL)) set.delete(NAME_ONLY_SENTINEL);
           }
         }
       }
     }
 
-    /* 2) 읽기 시트에서 명단 + 동명이인/전화 메타 가져오기
-          - 이름: readCol
-          - 동명이인 플래그: G열(빈칸 아니면 true)
-          - 전화 끝4: H열
-    */
+    /* 2) 읽기 시트: 이름(readCol), 동명이인(G), 전화끝4(H) */
     const namesData = await getRange(sheetId, `${readSheet}!${readCol}${READ_START_ROW}:${readCol}`);
     const dupData   = await getRange(sheetId, `${readSheet}!G${READ_START_ROW}:G`);
     const phoneData = await getRange(sheetId, `${readSheet}!H${READ_START_ROW}:H`);
@@ -386,7 +411,7 @@ async function runMain(){
     const dupByName = new Map();
     rosterRecords.forEach(r=>{ dupByName.set(r.name, r.dup); });
 
-    /* 3) 보고서(명단 기준) + 미확인 목록 준비 */
+    /* 3) 보고서 & 미확인 */
     const report=[]; const unresolved=[];
     for(const r of rosterRecords){
       const set = activeDigitsByName.get(r.name) || new Set();
@@ -395,13 +420,13 @@ async function runMain(){
           report.push([r.name,'입장',`${r.name}/${r.phone4}`,'동명이인(전화일치)']);
         }else{
           if(nameOnlyJoin.has(r.name)){
-            unresolved.push([r.name,'동명이인인데 입장로그에 번호 없음(읽기시트 기준)']);
+            unresolved.push([r.name,'동명이인인데 입장로그 번호 없음(읽기시트 기준)']);
           }
           report.push([r.name,'미입장','','동명이인/전화불일치 또는 번호없음']);
         }
       }else{
         if(set.size>=1 || nameOnlyJoin.has(r.name)){
-          const onlyDigit = [...set].find(x=>x!==NAME_ONLY_SENTINEL) || '';
+          const onlyDigit=[...set].find(x=>x!==NAME_ONLY_SENTINEL) || '';
           report.push([r.name,'입장', onlyDigit ? `${r.name}/${onlyDigit}` : r.name, onlyDigit?'':'(이름 유일/번호없음)']);
         }else{
           report.push([r.name,'미입장','','']);
@@ -409,9 +434,176 @@ async function runMain(){
       }
     }
 
-    /* 3-1) 예외/명단 외 입장자 */
+    /* 3-1) 예외/명단 외 */
     const extraJoined = [];
     [...activeDigitsByName.entries()].sort(([a],[b])=>a.localeCompare(b,'ko')).forEach(([name,set])=>{
       if(!rosterSet.has(name)){
         const digits=[...set].filter(x=>x!==NAME_ONLY_SENTINEL);
-        if(digits.length){ digits.sort().forEach(d => extraJoined.push([`${name]()
+        if(digits.length){ digits.sort().forEach(d => extraJoined.push([`${name}/${d}`])); }
+        if(set.has(NAME_ONLY_SENTINEL)){ extraJoined.push([`${name}(번호없음)`]); }
+      }
+    });
+    const exRows = exceptionsJoin.map(e => [e]);
+
+    /* 4) 공유 시트 D(이름), E(전화) → S 갱신 (읽기 G열 기준으로 '전화 필수' 판단) */
+    const writeSheet = val("writeSheetSelect");
+    const writeRange = `${writeSheet}!D${WRITE_START_ROW}:S`; // D..S
+    const wdata = await getRange(sheetId, writeRange);
+    const rows = wdata.values || [];
+    const updates = [];
+
+    const writeNameCounts = new Map();
+    for(let i=0;i<rows.length;i++){
+      const r = rows[i] || [];
+      const nm = String(r[0] ?? '').trim();
+      if(!nm) continue;
+      writeNameCounts.set(nm, (writeNameCounts.get(nm)||0)+1);
+    }
+    const S_INDEX = 15; // D..S 범위에서 S의 인덱스(D=0 → S=15)
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const name = String(r[0] ?? '').trim();     // D
+      const phone = last4Digits(r[1] ?? '');      // E
+      if (!name) continue;
+      if (WRITE_START_ROW===2 && name==='이름') continue; // 헤더
+      if (!rosterSet.has(name)) continue; // 명단 외는 스킵(원하면 제거 가능)
+
+      const set = activeDigitsByName.get(name) || new Set();
+      const dupRoster = !!dupByName.get(name);              // 읽기 시트 기준 동명이인
+      const dupWrite  = (writeNameCounts.get(name)||0) > 1; // 공유 시트 기준 동명이인
+      const needPhoneToMatch = dupRoster;                   // ★ 읽기 시트 기준일 때만 전화 필수
+
+      let writeAction = null; // '입장' | ''(미입장=비우기) | null(미확인)
+
+      if (set.size === 0 && !nameOnlyJoin.has(name)) {
+        writeAction = '';
+      } else if (needPhoneToMatch) {
+        if (phone) {
+          writeAction = set.has(phone) ? '입장' : '';
+        } else {
+          if (nameOnlyJoin.has(name)) {
+            unresolved.push([name,'동명이인 + 입장로그 번호없음(공유시트 기록 보류)']);
+            writeAction = null;
+          } else {
+            writeAction = '';
+          }
+        }
+      } else {
+        if (set.size >= 1 || nameOnlyJoin.has(name)) writeAction = '입장';
+        else writeAction = '';
+      }
+
+      // 공유시트에서 새 동명이인 + 로그 번호없음 → 미확인
+      if (writeAction !== '입장' && dupWrite && nameOnlyJoin.has(name)) {
+        unresolved.push([name,'공유시트 동명이인 발견 + 입장로그 번호없음(기록 보류)']);
+        writeAction = null;
+      }
+
+      if (writeAction !== null) {
+        const rowNumber = WRITE_START_ROW + i;
+        const valOut = (writeAction === '입장') ? '입장' : ''; // 미입장은 빈칸
+        updates.push({ range: `${writeSheet}!S${rowNumber}`, values: [[valOut]] });
+        if (r.length <= S_INDEX) r[S_INDEX] = valOut; else r[S_INDEX] = valOut;
+      }
+    }
+
+    if (updates.length) await batchUpdateValues(sheetId, updates);
+
+    /* 5) UI 렌더 */
+    if(res){
+      res.innerHTML='';
+      setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
+      showTable('내 명단 기준 상태', ['name','status','matched_id','notes'], report);
+      showTable('예외 입장자 (패턴/번호 미포함)', ['raw_nickname'], exRows);
+      showTable('명단 외 입장자', ['name/last4 or (번호없음)'], extraJoined);
+      showTable('미확인 목록', ['name','reason'], unresolved);
+      showTable('공유 시트 갱신 결과', ['updated_cells'], updates.map(u=>[u.range+' ← '+u.values[0][0]]));
+    }
+
+  }catch(e){ setErr('오류: '+e.message); console.error(e); }
+}
+
+/* =====================[ 데모 ]===================== */
+function runDemo(){
+  setErr(''); const res=$$("results"); if(res) res.innerHTML='';
+  const roster=['권지혁','김민정','홍길동','영희'];
+  const chatText=[
+    '2025.08.10 오후 8:01 - 권지혁/3788님이 입장하셨습니다',
+    '2025.08.10 오후 8:02 - 김민정 1122님이 들어왔습니다!',
+    '2025.08.10 오후 8:03 - 홍길동님이 입장하셨습니다',
+    '2025.08.10 오후 8:04 - 홍길동 1234님이 입장하셨습니다',
+    '2025.08.10 오후 8:05 - 권지혁님이 나갔습니다',
+    '2025.08.10 오후 8:06 - 권지혁님이 입장하셨습니다',
+    '2025.08.10 오후 8:07 - 영희님이 나갔습니다',
+    '2025.08.10 오후 8:08 - 민수님이 입장하셨습니다'
+  ].join('\n');
+
+  const {events, joinedCount, leftCount}=parseChat(chatText);
+  const activeDigitsByName=new Map(); const nameOnlyJoin=new Set(); const exceptionsJoin=[];
+  const NAME_ONLY_SENTINEL='__NAMEONLY__';
+  const ensure=(n)=>{ if(!activeDigitsByName.has(n)) activeDigitsByName.set(n,new Set()); return activeDigitsByName.get(n); };
+  for(const ev of events){
+    const s=splitNickname(ev.nick);
+    if(!s){ exceptionsJoin.push(ev.nick); continue; }
+    if(ev.type==='join'){
+      if(s.digits) ensure(s.name).add(s.digits);
+      else { nameOnlyJoin.add(s.name); ensure(s.name).add(NAME_ONLY_SENTINEL); exceptionsJoin.push(ev.nick); }
+    } else if(ev.type==='leave'){
+      if(s.digits) ensure(s.name).delete(s.digits);
+      else { const set=ensure(s.name); if(set.size===1 && set.has(NAME_ONLY_SENTINEL)) set.delete(NAME_ONLY_SENTINEL); }
+    }
+  }
+  const report=[]; roster.forEach(name=>{
+    const set=activeDigitsByName.get(name)||new Set();
+    if(set.size===0 && !nameOnlyJoin.has(name)) report.push([name,'미입장','','']);
+    else {
+      const onlyDigit=[...set].find(x=>x!==NAME_ONLY_SENTINEL) || '';
+      report.push([name,'입장', onlyDigit?`${name}/${onlyDigit}`:name, onlyDigit?'':'(이름 유일/번호없음)']);
+    }
+  });
+  const rosterSet=new Set(roster);
+  const extraJoined=[]; [...activeDigitsByName.entries()].forEach(([name,set])=>{
+    if(!rosterSet.has(name)){
+      const digits=[...set].filter(x=>x!==NAME_ONLY_SENTINEL);
+      if(digits.length) digits.forEach(d=>extraJoined.push([`${name}/${d}`]));
+      if(set.has(NAME_ONLY_SENTINEL)) extraJoined.push([`${name}(번호없음)`]);
+    }
+  });
+  const exRows=exceptionsJoin.map(e=>[e]);
+
+  if($$("results")){
+    setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
+    showTable('데모 결과 - 내 명단 기준 상태', ['name','status','matched_id','notes'], report);
+    showTable('데모 결과 - 예외 입장자', ['raw_nickname'], exRows);
+    showTable('데모 결과 - 명단 외 입장자', ['name/last4 or (번호없음)'], extraJoined);
+  }
+}
+
+/* =====================[ 초기화/바인딩 (세이프) ]===================== */
+window.addEventListener('load', ()=>{ if(window.google?.accounts?.oauth2) initAuth(); });
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  // 버튼/컨트롤 바인딩 (요소 없으면 조용히 스킵)
+  on('gsLoginBtn','click', requestAccess);
+  on('gsLogoutBtn','click', revokeAccess);
+
+  const overlay=$$("adminOverlay"), drawer=$$("adminDrawer");
+  on('settingsBtn','click', ()=>{ if(overlay&&drawer){ show(overlay); show(drawer); renderAdmList(); }});
+  on('closeAdmin','click', ()=>{ if(overlay&&drawer){ hide(overlay); hide(drawer); }});
+  if(overlay){ overlay.addEventListener('click', ()=>{ hide(overlay); const d=$$("adminDrawer"); if(d) hide(d); }); }
+
+  on('admAdd','click', admAdd);
+  on('admClearAll','click', ()=>{ if(confirm('모든 연결을 삭제할까요?')){ clearPacks(); renderAdmList(); populatePacks(); } });
+
+  on('sheetPackSelect','change', onPackChanged);
+  on('refreshMeta','click', refreshMeta);
+
+  on('runBtn','click', runMain);
+  on('demoBtn','click', runDemo);
+
+  populatePacks();
+});
+</script>
+</body>
+</html>
