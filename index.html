@@ -154,7 +154,7 @@ const READ_START_ROW  = 2; // 읽기 시트(명단) 시작 행
 const WRITE_START_ROW = 2; // 공유 시트(상태) 시작 행
 
 /* =====================[ 공통 / OAuth ]===================== */
-const CLIENT_ID = "18228268359-iifm4ck3j9kqj74eh1p90tco1k2mbpi0.apps.googleusercontent.com"; // ★ 교체하세요
+const CLIENT_ID = "18228268359-iifm4ck3j9kqj74eh1p90tco1k2mbpi0.apps.googleusercontent.com"; // ← 제공해주신 값
 
 const $$ = (id)=>document.getElementById(id);
 function setErr(msg){ $$("err").textContent = msg||""; }
@@ -226,7 +226,7 @@ async function batchUpdateValues(spreadsheetId, dataRanges){
 }
 
 /* =====================[ 관리자: 스프레드시트 등록 ]===================== */
-const PACKS_KEY='ca_gsapi_sources_v4';
+const PACKS_KEY='ca_gsapi_sources_v5';
 const loadPacks=()=>{ try{return JSON.parse(localStorage.getItem(PACKS_KEY)||'[]');}catch(e){return [];} };
 const savePacks=(ps)=> localStorage.setItem(PACKS_KEY, JSON.stringify(ps));
 const addPack=(p)=>{ const a=loadPacks(); a.push(p); savePacks(a); };
@@ -292,10 +292,12 @@ function onPackChanged(){
 }
 
 /* =====================[ 카톡 로그 파싱 ]===================== */
-const JOIN_PAT = /(.*?)님이\s*(입장하셨습니다|들어왔습니다|입장했습니다|들어오셨습니다)\./;
-const LEAVE_PAT = /(.*?)님이\s*(퇴장하셨습니다|나갔습니다|퇴장했습니다|나가셨습니다)\./;
+// 정규식 완화: 문장 끝의 마침표/느낌표/공백 허용
+const JOIN_PAT  = /(.*?)님이\s*(입장하셨습니다|들어왔습니다|입장했습니다|들어오셨습니다)[\s\.\!]*$/;
+const LEAVE_PAT = /(.*?)님이\s*(퇴장하셨습니다|나갔습니다|퇴장했습니다|나가셨습니다)[\s\.\!]*$/;
+
 const NICK_PATTERN = /^\s*([A-Za-z0-9가-힣·\s]+?)\s*[\/-]?\s*(\d{4})\s*$/;
-const NAME_ONLY = /^\s*([A-Za-z0-9가-힣·\s]+?)\s*$/;
+const NAME_ONLY    = /^\s*([A-Za-z0-9가-힣·\s]+?)\s*$/;
 
 async function readText(file){ return await file.text(); }
 function parseChat(text){
@@ -309,10 +311,10 @@ function parseChat(text){
   return {events, joinedCount, leftCount};
 }
 function splitNickname(nick){
-  const m=nick.match(NICK_PATTERN);
+  const m=NICK_PATTERN.exec(nick);
   if(m) return {name:m[1].trim(), digits:m[2]};
-  const n=nick.match(NAME_ONLY);
-  if(n) return {name:n[1].trim(), digits:null}; // 이름만
+  const n=NAME_ONLY.exec(nick);
+  if(n) return {name:n[1].trim(), digits:null};
   return null;
 }
 
@@ -332,9 +334,10 @@ async function runMain(){
     const chatText = await readText(chatFile);
     const {events, joinedCount, leftCount} = parseChat(chatText);
 
-    const activeDigitsByName = new Map(); // name -> Set(4자리)
-    const nameOnlyJoin = new Set();       // 번호 없이 이름만 입장 기록된 이름들
-    const exceptionsJoin=[];              // 디버그용(패턴 미일치)
+    const activeDigitsByName = new Map(); // name -> Set(4자리 or 센티널)
+    const nameOnlyJoin = new Set();       // 번호 없이 이름만 입장
+    const exceptionsJoin=[];              // 패턴 미일치 / 로그 참고
+    const NAME_ONLY_SENTINEL = '__NAMEONLY__';
 
     const ensure=(name)=>{ if(!activeDigitsByName.has(name)) activeDigitsByName.set(name,new Set()); return activeDigitsByName.get(name); };
 
@@ -342,15 +345,20 @@ async function runMain(){
       const s=splitNickname(ev.nick);
       if(!s){ exceptionsJoin.push(ev.nick); continue; }
       if(ev.type==='join'){
-        if(s.digits){ ensure(s.name).add(s.digits); }
-        else { nameOnlyJoin.add(s.name); exceptionsJoin.push(ev.nick); } // 번호 없는 입장도 예외 목록에 기록
+        if(s.digits){
+          ensure(s.name).add(s.digits);
+        } else {
+          nameOnlyJoin.add(s.name);
+          ensure(s.name).add(NAME_ONLY_SENTINEL); // 번호 없어도 '입장'으로 인식
+          exceptionsJoin.push(ev.nick); // 참고용
+        }
       }else if(ev.type==='leave'){
-        if(s.digits){ ensure(s.name).delete(s.digits); }
-        else {
-          // 이름만 퇴장: 현재 하나만 남아있으면 제거(보수적 처리)
+        if(s.digits){
+          ensure(s.name).delete(s.digits);
+        } else {
           if(activeDigitsByName.has(s.name)){
             const set=activeDigitsByName.get(s.name);
-            if(set.size===1){ set.delete([...set][0]); }
+            if(set.size===1 && set.has(NAME_ONLY_SENTINEL)){ set.delete(NAME_ONLY_SENTINEL); }
           }
         }
       }
@@ -358,7 +366,7 @@ async function runMain(){
 
     /* 2) 읽기 시트에서 명단 + 동명이인/전화 메타 가져오기
           - 이름: readCol
-          - 동명이인 플래그: G열(빈칸 아니면 true로 간주)
+          - 동명이인 플래그: G열(빈칸 아니면 true)
           - 전화 끝4: H열
     */
     const namesData = await getRange(sheetId, `${readSheet}!${readCol}${READ_START_ROW}:${readCol}`);
@@ -375,24 +383,11 @@ async function runMain(){
       rosterRecords.push({ name, dup: !!dupFlagRaw, phone4 });
     }
     const rosterSet = new Set(rosterRecords.map(r=>r.name));
-    // 이름→(dup, rosterPhones(set)) 맵
     const dupByName = new Map();
-    const rosterPhonesByName = new Map();
-    rosterRecords.forEach(r=>{
-      dupByName.set(r.name, dupByName.get(r.name) || r.dup);
-      if(r.phone4){
-        if(!rosterPhonesByName.has(r.name)) rosterPhonesByName.set(r.name, new Set());
-        rosterPhonesByName.get(r.name).add(r.phone4);
-      }
-    });
+    rosterRecords.forEach(r=>{ dupByName.set(r.name, r.dup); });
 
-    /* 3) 보고서(명단 기준) + 미확인 목록 준비
-          규칙:
-          - 동명이인(dup=true): roster의 phone4가 있고, activeDigits(name)에 그 phone4가 있으면 '입장'
-                               phone4 없거나, 로그에 번호가 없으면 → '미확인' 후보
-          - 동명이인 아님: activeDigits(name).size>=1 또는 nameOnlyJoin 포함 → '입장'
-    */
-    const report=[]; const unresolved=[]; // 미확인 목록
+    /* 3) 보고서(명단 기준) + 미확인 목록 준비 */
+    const report=[]; const unresolved=[];
     for(const r of rosterRecords){
       const set = activeDigitsByName.get(r.name) || new Set();
       if(r.dup){
@@ -400,15 +395,14 @@ async function runMain(){
           report.push([r.name,'입장',`${r.name}/${r.phone4}`,'동명이인(전화일치)']);
         }else{
           if(nameOnlyJoin.has(r.name)){
-            unresolved.push([r.name,'동명이인인데 로그에 번호 없음(읽기시트 기준)']);
+            unresolved.push([r.name,'동명이인인데 입장로그에 번호 없음(읽기시트 기준)']);
           }
           report.push([r.name,'미입장','','동명이인/전화불일치 또는 번호없음']);
         }
       }else{
         if(set.size>=1 || nameOnlyJoin.has(r.name)){
-          // 번호 없이도 고유 이름이면 입장 처리
-          const only = set.size===1 ? [...set][0] : '';
-          report.push([r.name,'입장', only ? `${r.name}/${only}` : r.name, only?'':'(이름 유일)']);
+          const onlyDigit = [...set].find(x=>x!==NAME_ONLY_SENTINEL) || '';
+          report.push([r.name,'입장', onlyDigit ? `${r.name}/${onlyDigit}` : r.name, onlyDigit?'':'(이름 유일/번호없음)']);
         }else{
           report.push([r.name,'미입장','','']);
         }
@@ -417,167 +411,7 @@ async function runMain(){
 
     /* 3-1) 예외/명단 외 입장자 */
     const extraJoined = [];
-    // digits 기반
     [...activeDigitsByName.entries()].sort(([a],[b])=>a.localeCompare(b,'ko')).forEach(([name,set])=>{
-      if(!rosterSet.has(name)) [...set].sort().forEach(d => extraJoined.push([`${name}/${d}`]));
-    });
-    // 이름만 입장(번호없음)인데 명단 외
-    nameOnlyJoin.forEach(name=>{ if(!rosterSet.has(name)) extraJoined.push([`${name}(번호없음)`]); });
-
-    const exRows = exceptionsJoin.map(e => [e]);
-
-    /* 4) 공유 시트 D(이름), E(전화) 읽어 S 갱신 (동명이인 판정: D→E끝4) 
-          추가 규칙:
-          - 공유시트 내 '같은 이름'이 2행 이상이면(동명이인 발견) 전화 없는 행은 '미확인'으로 분류(로그에 번호가 없으면 특히)
-          - '미확인'은 S를 건드리지 않음(테이블에만 기록)
-          - '미입장'은 S를 빈칸으로 기록
-    */
-    const writeRange = `${writeSheet}!D${WRITE_START_ROW}:S`; // D..S
-    const wdata = await getRange(sheetId, writeRange);
-    const rows = wdata.values || [];
-    const updates = [];
-    const writeNameCounts = new Map();   // 공유시트 내 동명이인 체크용
-    const writeNamePhones = new Map();   // name -> Set(전화4)
-    for(let i=0;i<rows.length;i++){
-      const r = rows[i] || [];
-      const name = String(r[0] ?? '').trim();
-      const phone = last4Digits(r[1] ?? '');
-      if(!name) continue;
-      writeNameCounts.set(name, (writeNameCounts.get(name)||0)+1);
-      if(phone){
-        if(!writeNamePhones.has(name)) writeNamePhones.set(name, new Set());
-        writeNamePhones.get(name).add(phone);
-      }
-    }
-    const S_INDEX = 15; // D..S 범위에서 S의 인덱스(D=0 → S=15)
-
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i] || [];
-      const name = String(r[0] ?? '').trim();     // D
-      const phone = last4Digits(r[1] ?? '');      // E
-      if (!name) continue;
-      if (WRITE_START_ROW===2 && name==='이름') continue; // 헤더
-
-      // 명단에 없는 이름이면 스킵(원하면 삭제)
-      if (!rosterSet.has(name)) continue;
-
-      const set = activeDigitsByName.get(name) || new Set();
-      const dupRoster = !!dupByName.get(name);          // 읽기 시트 기준 동명이인
-      const dupWrite  = (writeNameCounts.get(name)||0) > 1; // 공유 시트 기준 동명이인
-      const needPhoneToMatch = dupRoster || dupWrite;   // 어느 한쪽에서라도 동명이인이면 전화필요
-      let writeAction = null; // '입장' | ''(미입장→비우기) | null(미확인)
-
-      if (set.size === 0 && !nameOnlyJoin.has(name)) {
-        // 입장 근거 없음 → 미입장(비우기)
-        writeAction = '';
-      } else if (needPhoneToMatch) {
-        if (phone) {
-          // 전화가 있으면 번호 일치 여부로 판단
-          writeAction = set.has(phone) ? '입장' : '';
-        } else {
-          // 전화 없음 → 미확인 규칙
-          // (a) 읽기시트 동명이인인데 로그에 번호 없음
-          if (dupRoster && nameOnlyJoin.has(name)) {
-            unresolved.push([name,'동명이인 + 입장로그 번호없음(공유시트 기록 보류)']);
-            writeAction = null;
-          }
-          // (b) 공유시트에서 동명이인 새로 발견 + 로그에 번호 없음
-          else if (dupWrite && nameOnlyJoin.has(name)) {
-            unresolved.push([name,'공유시트 동명이인 발견 + 입장로그 번호없음(기록 보류)']);
-            writeAction = null;
-          } else {
-            // 번호 없이도 set이 1개뿐이고, 읽기/공유 둘 다 동명이인 아닌 케이스만 입장 가능하지만
-            // 여긴 needPhoneToMatch=true이므로 기록 보류/미입장 중 택1
-            writeAction = ''; // 보수적으로 비움
-          }
-        }
-      } else {
-        // 동명이인 아님 → 이름만으로 판정
-        if (set.size >= 1 || nameOnlyJoin.has(name)) writeAction = '입장';
-        else writeAction = '';
-      }
-
-      if (writeAction !== null) {
-        const rowNumber = WRITE_START_ROW + i; // 실제 시트 행 번호
-        const val = (writeAction === '입장') ? '입장' : ''; // 미입장은 빈칸
-        updates.push({ range: `${writeSheet}!S${rowNumber}`, values: [[val]] });
-        if (r.length <= S_INDEX) r[S_INDEX] = val; else r[S_INDEX] = val;
-      }
-    }
-
-    if (updates.length) await batchUpdateValues(sheetId, updates);
-
-    /* 5) UI 렌더: 명단 → 예외/명단외 → 미확인 → 갱신결과 */
-    $$("results").innerHTML='';
-    setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
-    showTable('내 명단 기준 상태', ['name','status','matched_id','notes'], report);
-    showTable('예외 입장자 (패턴/번호 미포함)', ['raw_nickname'], exRows);
-    showTable('명단 외 입장자', ['name/last4 or (번호없음)'], extraJoined);
-    showTable('미확인 목록', ['name','reason'], unresolved);
-    showTable('공유 시트 갱신 결과', ['updated_cells'], updates.map(u=>[u.range+' ← '+u.values[0][0]]));
-
-  }catch(e){ setErr('오류: '+e.message); console.error(e); }
-}
-
-/* =====================[ 데모 ]===================== */
-function runDemo(){
-  setErr(''); $$("results").innerHTML='';
-  const roster=['권지혁','김민정','홍길동','영희'];
-  const chatText=[
-    '2025.08.10 오후 8:01 - 권지혁/3788님이 입장하셨습니다.',
-    '2025.08.10 오후 8:02 - 김민정 1122님이 들어왔습니다.',
-    '2025.08.10 오후 8:03 - 홍길동/9999님이 입장하셨습니다.',
-    '2025.08.10 오후 8:04 - 홍길동 1234님이 입장하셨습니다.',
-    '2025.08.10 오후 8:05 - 권지혁님이 입장하셨습니다.', // 번호없음(미확인 후보)
-    '2025.08.10 오후 8:06 - 영희님이 나갔습니다.',
-    '2025.08.10 오후 8:07 - 민수님이 입장하셨습니다.'     // 명단 외
-  ].join('\n');
-
-  const {events, joinedCount, leftCount}=parseChat(chatText);
-  const activeDigitsByName=new Map(); const nameOnlyJoin=new Set(); const exceptionsJoin=[];
-  const ensure=(n)=>{ if(!activeDigitsByName.has(n)) activeDigitsByName.set(n,new Set()); return activeDigitsByName.get(n); };
-  for(const ev of events){
-    const s=splitNickname(ev.nick);
-    if(!s){ exceptionsJoin.push(ev.nick); continue; }
-    if(ev.type==='join'){ if(s.digits) ensure(s.name).add(s.digits); else { nameOnlyJoin.add(s.name); exceptionsJoin.push(ev.nick); } }
-    else if(ev.type==='leave'){ if(s.digits) ensure(s.name).delete(s.digits); }
-  }
-  const report=[]; roster.forEach(name=>{
-    const set=activeDigitsByName.get(name)||new Set();
-    if(set.size===0 && !nameOnlyJoin.has(name)) report.push([name,'미입장','','']);
-    else report.push([name,'입장', set.size===1?`${name}/${[...set][0]}`:nameOnlyJoin.has(name)?'(이름유일)': '', '']);
-  });
-  const rosterSet=new Set(roster);
-  const extraJoined=[]; [...activeDigitsByName.entries()].forEach(([name,set])=>{ if(!rosterSet.has(name)) [...set].forEach(d=>extraJoined.push([`${name}/${d}`])); });
-  nameOnlyJoin.forEach(name=>{ if(!rosterSet.has(name)) extraJoined.push([`${name}(번호없음)`]); });
-  const exRows=exceptionsJoin.map(e=>[e]);
-
-  setPills({joined:joinedCount,left:leftCount,exceptions:exceptionsJoin.length});
-  showTable('데모 결과 - 내 명단 기준 상태', ['name','status','matched_id','notes'], report);
-  showTable('데모 결과 - 예외 입장자', ['raw_nickname'], exRows);
-  showTable('데모 결과 - 명단 외 입장자', ['name/last4 or (번호없음)'], extraJoined);
-}
-
-/* =====================[ 이벤트 바인딩 ]===================== */
-window.addEventListener('load', ()=>{ if(window.google?.accounts?.oauth2) initAuth(); });
-window.addEventListener('DOMContentLoaded', ()=>{
-  $$("gsLoginBtn").onclick = requestAccess;
-  $$("gsLogoutBtn").onclick = revokeAccess;
-
-  $$("settingsBtn").onclick = ()=>{ $$("adminOverlay").style.display='block'; $$("adminDrawer").style.display='flex'; renderAdmList(); };
-  $$("closeAdmin").onclick = $$("adminOverlay").onclick = ()=>{ $$("adminOverlay").style.display='none'; $$("adminDrawer").style.display='none'; };
-
-  $$("admAdd").onclick = admAdd;
-  $$("admClearAll").onclick = ()=>{ if(confirm('모든 연결을 삭제할까요?')){ clearPacks(); renderAdmList(); populatePacks(); } };
-
-  $$("sheetPackSelect").onchange = onPackChanged;
-  $$("refreshMeta").onclick = refreshMeta;
-
-  $$("runBtn").onclick = runMain;
-  $$("demoBtn").onclick = runDemo;
-
-  populatePacks();
-});
-</script>
-</body>
-</html>
+      if(!rosterSet.has(name)){
+        const digits=[...set].filter(x=>x!==NAME_ONLY_SENTINEL);
+        if(digits.length){ digits.sort().forEach(d => extraJoined.push([`${name]()
