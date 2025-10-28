@@ -169,7 +169,13 @@ const CLIENT_ID = "18228268359-iifm4ck3j9kqj74eh1p90tco1k2mbpi0.apps.googleuserc
 const $$ = (id)=>document.getElementById(id);
 const txt = (id, v)=>{ const el=$$(id); if(el) el.textContent=v||""; };
 const val = (id)=>{ const el=$$(id); return el?el.value:""; };
-function on(id, event, handler){ const el=$$(id); if(!el){ console.warn("[bind skipped] #"+id); return; } el.addEventListener(event, e=>{ try{ handler(e); }catch(err){ console.error(err); }}); }
+function on(id, event, handler){
+  const el=$$(id);
+  if(!el){ console.warn("[bind skipped] #"+id); return; }
+  el.addEventListener(event, e=>{
+    try{ handler(e); }catch(err){ console.error(err); txt('err','오류: '+(err?.message||err)); }
+  });
+}
 function show(el){ el.classList.add('open'); el.setAttribute('aria-hidden','false'); }
 function hide(el){ el.classList.remove('open'); el.setAttribute('aria-hidden','true'); }
 function last4Digits(s){ const d=String(s||'').replace(/[^\d]/g,''); return d.slice(-4); }
@@ -337,9 +343,9 @@ function parseChat(text){
   const events=[]; let joinedCount=0,leftCount=0;
   for(const raw of lines){
     const line=raw.trim(); if(!line) continue;
-    let m=line.match(JOIN_PAT);  if(m){ events.push({type:'join',  nick:m[1].trim(), raw:line}); joinedCount++; continue; }
+    let m=line.match(JOIN_PAT);  if(m){ events.push({type:'join',  nick=m[1].trim(), raw:line}); joinedCount++; continue; }
     m=line.match(LEAVE_PAT);     if(m){ events.push({type:'leave', nick=m[1].trim(), raw:line}); leftCount++;  continue; }
-    m=line.match(KICK_PAT1);     if(m){ events.push({type:'leave', nick:m[1].trim(), raw:line}); leftCount++;  continue; }
+    m=line.match(KICK_PAT1);     if(m){ events.push({type:'leave', nick=m[1].trim(), raw:line}); leftCount++;  continue; }
     m=line.match(KICK_PAT2);     if(m){ events.push({type:'leave', nick=m[1].trim(), raw:line}); leftCount++;  continue; }
   }
   return {events, joinedCount, leftCount};
@@ -423,7 +429,7 @@ async function runMain(){
       }
     }
 
-    // 명단 외 입장자 (퇴장 최종자 제외하려면 active 기반이므로 이미 제외됨)
+    // 명단 외 입장자
     const extra=[];
     [...activeDigitsByName.entries()].sort(([a],[b])=>a.localeCompare(b,'ko')).forEach(([nN,set])=>{
       if(!rosterSetN.has(nN)){
@@ -496,7 +502,8 @@ async function runMain(){
       pills.appendChild(mk(`입장 로그 ${joinedCount}`,'ok'));
       pills.appendChild(mk(`퇴장/강퇴 로그 ${leftCount}`,'bad'));
       pills.appendChild(mk(`현재 입장(읽기시트 기준) ${attendingSetN.size}`,'warn'));
-      pills.appendChild(mk(`최종 퇴장 ${leftFinal.length}`,'bad'));
+      const leftFinalCount = [...leftFinal].length;
+      pills.appendChild(mk(`최종 퇴장 ${leftFinalCount}`,'bad'));
       if(previewOnly) pills.appendChild(mk('체크만','warn'));
     }
 
@@ -517,10 +524,9 @@ async function runMain(){
     resTbl('명단 외 입장자', ['name/last4 or (번호없음)'], extra);
     resTbl('미확인 목록(공유 시트 동명이인/번호 문제)', ['name','reason'], unresolved);
 
-    // 퇴장자 명단 (로스터 내/외 구분)
     const rosterSetNN = new Set(rosterNamesN);
-    const leftRoster = leftFinal.filter(nN=>rosterSetNN.has(nN)).map(nN=>[rosterNames[rosterNamesN.indexOf(nN)]||nN]);
-    const leftExtra  = leftFinal.filter(nN=>!rosterSetNN.has(nN)).map(nN=>[nN]);
+    const leftRoster = [...leftFinal].filter(nN=>rosterSetNN.has(nN)).map(nN=>[rosterNames[rosterNamesN.indexOf(nN)]||nN]);
+    const leftExtra  = [...leftFinal].filter(nN=>!rosterSetNN.has(nN)).map(nN=>[nN]);
 
     resTbl('퇴장자 명단(로스터 기준)', ['name'], leftRoster);
     resTbl('명단 외 퇴장자', ['name'], leftExtra);
@@ -554,22 +560,29 @@ function runDemo(){
   function table(title, rows){
     const wrap=document.createElement('div'); wrap.className='card'; const h=document.createElement('h3'); h.textContent=title; wrap.appendChild(h);
     const t=document.createElement('table'); t.innerHTML='<thead><tr><th>name</th><th>status</th></tr></thead>';
-    const tb=document.createElement('tbody'); rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }); tb.appendChild(tr); }); t.appendChild(tb); wrap.appendChild(t);
+    const tb=document.createElement('tbody'); rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent=c; }); tb.appendChild(tr); }); t.appendChild(tb); wrap.appendChild(t);
     resultsEl.appendChild(wrap);
   }
   const rows=[]; active.forEach((set,name)=>{ const d=[...set].find(x=>x!==SENT)||''; rows.push([name, d?`입장(${d})`:'입장(번호없음)']); });
   if(resultsEl) table('데모 결과', rows);
 }
 
-/* ===== 초기화 ===== */
-window.addEventListener('load', ()=>{ if(window.google?.accounts?.oauth2) initAuth(); });
-document.addEventListener('DOMContentLoaded', ()=>{
-  on('gsLoginBtn','click', requestAccess);
-  on('gsLogoutBtn','click', revokeAccess);
+/* ===== 안전한 바인딩: DOM 상태에 따라 즉시/한번만 ===== */
+let __boundOnce = false;
+function bindUI(){
+  if(__boundOnce) return;
+  __boundOnce = true;
+
+  // OAuth init (GIS가 늦게 로드되면 load에서 한 번 더 시도)
+  if(window.google?.accounts?.oauth2) initAuth();
 
   const overlay=$$('adminOverlay'), drawer=$$('adminDrawer');
   const openAdmin=()=>{ if(overlay&&drawer){ show(overlay); show(drawer); renderAdmList(); } };
   const closeAdmin=()=>{ if(overlay&&drawer){ hide(overlay); hide(drawer); } };
+
+  on('gsLoginBtn','click', requestAccess);
+  on('gsLogoutBtn','click', revokeAccess);
+
   on('settingsBtn','click', openAdmin);
   on('closeAdmin','click', closeAdmin);
   if(overlay) overlay.addEventListener('click', closeAdmin);
@@ -584,7 +597,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
   on('demoBtn','click', runDemo);
 
   populatePacks();
-});
+}
+
+// DOM 준비 여부에 따라 즉시 실행 또는 대기
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bindUI, { once:true });
+} else {
+  bindUI();
+}
+
+// GIS가 늦게 로드되는 환경 대비
+window.addEventListener('load', ()=>{ if(!tokenClient && window.google?.accounts?.oauth2){ initAuth(); } });
 </script>
 </body>
 </html>
