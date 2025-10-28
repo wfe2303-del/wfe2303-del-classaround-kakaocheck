@@ -172,7 +172,7 @@
     <!-- 로그인(공용) -->
     <div class="card">
       <div class="row">
-        <button id="gsLoginBtn" class="btn acc" type="button">Google 로그인</button>
+        <button id="gsLoginBtn" class="btn acc" type="button">Classaround 로그인</button>
         <button id="gsLogoutBtn" class="btn" type="button">로그아웃</button>
         <span id="authState" class="hint">미로그인</span>
       </div>
@@ -726,7 +726,7 @@ function runDemo(sfx){
   }
   const actRows=[]; active.forEach((set,name)=>{ set.forEach(d=>{ if(d===NAME_ONLY_SENTINEL) actRows.push(`${name}(번호없음)`); else actRows.push(`${name}/${d}`); }); });
   const leaveRows=[]; leftFinal.forEach((set,name)=>{ set.forEach(d=>{ if(!active.get(name)?.has(d)) leaveRows.push(d===NAME_ONLY_SENTINEL?`${name}(번호없음)`: `${name}/${d}`); }); });
-  table('데모 활성', actRows);
+  table('데모 입장자', actRows);
   table('데모 퇴장자(최종)', leaveRows);
 }
 
