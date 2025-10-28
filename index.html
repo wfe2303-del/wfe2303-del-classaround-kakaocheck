@@ -39,6 +39,58 @@
     table{width:100%;border-collapse:collapse;border:1px solid var(--line);overflow:auto;background:#fff;border-radius:12px}
     th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
     th{color:#0f172a;font-weight:600;background:#f1f5f9;position:sticky;top:0}
+/* === 로고 + 제목 줄 === */
+:root{
+  --logo-size: 112px;                    /* ← 크기 조절: 56/64/72 등 원하시는 값 */
+  --ca-logo-file: url("클어 로고.png");  /* ← 파일 있으면 이걸 표시, 없어도 OK */
+}
+
+.brand{
+  display:flex; align-items:center; gap:14px;
+  margin:0 0 6px;
+}
+.brand h1{ margin:0; font-size:22px; }
+
+/* 엑박 방지: 파일 → 내장 SVG 폴백(텍스트형) */
+.brand-logo{
+  width:var(--logo-size); height:var(--logo-size); flex:0 0 var(--logo-size);
+  border:none; border-radius:12px; background-color:transparent;
+  background-image:
+    var(--ca-logo-file),
+    url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 90 50'>\
+ <rect width='90' height='50' rx='10' fill='white'/>\
+ <circle cx='66' cy='10' r='8' fill='%236b8bd6'/>\
+ <circle cx='80' cy='18' r='5' fill='%23ef4444'/>\
+ <text x='8' y='24' font-size='18' font-family='-apple-system,Segoe UI,Roboto,Arial,Noto Sans KR,sans-serif' font-weight='800' fill='%230f172a'>Class</text>\
+ <text x='8' y='42' font-size='18' font-family='-apple-system,Segoe UI,Roboto,Arial,Noto Sans KR,sans-serif' font-weight='800' fill='%230f172a'>Around</text>\
+</svg>");
+  background-repeat:no-repeat,no-repeat;
+  background-position:center,center;
+  background-size:contain,contain;
+  /* 살짝 세로정렬 보정이 필요하면 아래 주석 해제
+  transform: translateY(1px);
+  */
+}
+/* 둥글둥글한 로고 텍스트 스타일 (페이지 최하단에 추가) */
+.brand-logo .logo-text{
+  font-family: 'Nunito','Arial Rounded MT','SF Pro Rounded',
+               'Quicksand','Pretendard','Noto Sans KR',sans-serif;
+  font-weight: 900;          /* 통통하게 */
+  letter-spacing: -0.2px;    /* 자간 살짝 압축 */
+  font-size: 18px;           /* 로고 내부 글자 크기 */
+  fill: #0f172a;             /* 글자 색 */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+.brand-logo .logo-text{
+  paint-order: stroke fill;
+  stroke: #0f172a;         /* 글자색과 동일 */
+  stroke-width: .9px;      /* 0.6~1.4px에서 취향대로 조절 */
+}
+
+
+
 /* ===== 관리자 UI: 예전 스샷 스타일로 맞춤 ===== */
 
 /* 드로어 크기/여백 */
@@ -167,14 +219,34 @@
   <button id="settingsBtn" class="gear-btn" title="설정" type="button" aria-label="관리자 설정 열기">⚙</button>
 
   <div class="wrap">
-    <h1>클래스어라운드 카카오톡 입장자 체크봇</h1>
+<header class="brand">
+  <svg class="brand-logo" viewBox="0 0 90 50" role="img" aria-label="ClassAround">
+    <rect width="90" height="50" rx="10" fill="white"/>
+<svg class="brand-logo" viewBox="0 0 90 50" role="img" aria-label="ClassAround">
+  <defs>
+    <filter id="halo" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.2"/>
+    </filter>
+  </defs>
+
+  <!-- 배경 -->
+  <rect width="90" height="50" rx="10" fill="white"/>
+    <circle cx="66" cy="10" r="8" fill="#6b8bd6"/>
+    <circle cx="80" cy="18" r="5" fill="#ef4444"/>
+    <text x="8" y="24" class="logo-text">Class</text>
+    <text x="8" y="42" class="logo-text">Around</text>
+  </svg>
+  <h1>클래스어라운드 카카오톡 입장자 체크봇</h1>
+</header>
+
+
 
     <!-- 로그인(공용) -->
     <div class="card">
       <div class="row">
-        <button id="gsLoginBtn" class="btn acc" type="button">Classaround 로그인</button>
+        <button id="gsLoginBtn" class="btn acc" type="button">로그인</button>
         <button id="gsLogoutBtn" class="btn" type="button">로그아웃</button>
-        <span id="authState" class="hint">미로그인</span>
+        <span id="authState" class="hint">로그인이 필요합니다.</span>
       </div>
       <div id="authErr" class="err" style="margin-top:6px"></div>
     </div>
@@ -779,5 +851,3 @@ document.addEventListener('DOMContentLoaded', ()=>{
 </script>
 </body>
 </html>
-
-
