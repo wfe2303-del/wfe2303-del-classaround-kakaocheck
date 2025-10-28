@@ -63,6 +63,7 @@
     <h1>클래스어라운드 카카오톡 입장자 체크봇</h1>
     <div class="sub">
       순서) <b>읽기 시트</b> 이름열만으로 입장 판정(겹치면 닉네임 끝4로 구분) → <b>공유 시트</b>는 I=결제완료인 행 중 D=이름(동명이인 시 E=끝4) 매칭에만 <b>S=입장</b> 기록.
+      <b>퇴장/강퇴(“…나갔습니다/내보냈습니다”)</b>는 최종 입장 집합에서 제외하고 <b>퇴장자 명단</b>에 따로 표시.
     </div>
 
     <div class="card">
@@ -309,8 +310,13 @@ function onPackChanged(){
 }
 
 /* ===== 카톡 파싱 ===== */
+/* 입장 */
 const JOIN_PAT  = /(.*?)님이\s*(입장하셨습니다|들어왔습니다|입장했습니다|들어오셨습니다)[\s\.\!]*$/;
+/* 일반 퇴장 */
 const LEAVE_PAT = /(.*?)님이\s*(퇴장하셨습니다|나갔습니다|퇴장했습니다|나가셨습니다)[\s\.\!]*$/;
+/* 강퇴: "관리자님이 OOO님을 내보냈습니다" or "OOO님을 내보냈습니다" */
+const KICK_PAT1 = /.+?님이\s+(.+?)님을\s*(내보냈습니다|내보냈어요)[\s\.\!]*$/;
+const KICK_PAT2 = /(.+?)님을\s*(내보냈습니다|내보냈어요)[\s\.\!]*$/;
 
 /* 이름 우선 + 특수기호 무시 번호 끝4 */
 function splitNickname(nick){
@@ -331,8 +337,10 @@ function parseChat(text){
   const events=[]; let joinedCount=0,leftCount=0;
   for(const raw of lines){
     const line=raw.trim(); if(!line) continue;
-    let m=line.match(JOIN_PAT); if(m){ events.push({type:'join', nick:m[1].trim(), raw:line}); joinedCount++; continue; }
-    m=line.match(LEAVE_PAT); if(m){ events.push({type:'leave', nick:m[1].trim(), raw:line}); leftCount++; continue; }
+    let m=line.match(JOIN_PAT);  if(m){ events.push({type:'join',  nick=m[1].trim(), raw:line}); joinedCount++; continue; }
+    m=line.match(LEAVE_PAT);     if(m){ events.push({type:'leave', nick=m[1].trim(), raw:line}); leftCount++;  continue; }
+    m=line.match(KICK_PAT1);     if(m){ events.push({type:'leave', nick=m[1].trim(), raw:line}); leftCount++;  continue; }
+    m=line.match(KICK_PAT2);     if(m){ events.push({type:'leave', nick=m[1].trim(), raw:line}); leftCount++;  continue; }
   }
   return {events, joinedCount, leftCount};
 }
@@ -352,25 +360,36 @@ async function runMain(){
     const packs=loadPacks(); const pack=packs.find(x=>x.id===packSel.value); if(!pack) throw new Error('연결 정보를 찾을 수 없습니다.');
     const sheetId=pack.sheetId; const readCol=pack.readCol||'C';
 
-    // 1) 카톡 파싱 → 현재 입장중 집합
+    // 1) 카톡 파싱 → 현재 입장중 집합 + 퇴장자 추적
     const chatText = await readText(chatFile);
     const {events, joinedCount, leftCount} = parseChat(chatText);
-    const activeDigitsByName = new Map(); // nameN -> Set(끝4 or sentinel)
-    const nameOnlyJoin = new Set();
-    const NAME_ONLY_SENTINEL = '__NAMEONLY__';
+
+    const NAME_ONLY_SENTINEL='__NAMEONLY__';
+    const activeDigitsByName=new Map();   // nameN -> Set(last4 or sentinel)
+    const nameOnlyJoin=new Set();         // 번호 없이 입장
+    const leftEver=new Set();             // 퇴장(또는 강퇴) 이벤트가 있었던 이름(정규화)
+
     const ensure=(n)=>{ if(!activeDigitsByName.has(n)) activeDigitsByName.set(n,new Set()); return activeDigitsByName.get(n); };
 
     for(const ev of events){
       const s=splitNickname(ev.nick);
       if(!s) continue;
+      const nN=s.name;
+
       if(ev.type==='join'){
-        if(s.digits){ ensure(s.name).add(s.digits); }
-        else { nameOnlyJoin.add(s.name); ensure(s.name).add(NAME_ONLY_SENTINEL); }
-      }else if(ev.type==='leave'){
-        if(s.digits){ ensure(s.name).delete(s.digits); }
-        else { const set=ensure(s.name); if(set.size===1 && set.has(NAME_ONLY_SENTINEL)) set.delete(NAME_ONLY_SENTINEL); }
+        if(s.digits){ ensure(nN).add(s.digits); }
+        else { ensure(nN).add(NAME_ONLY_SENTINEL); nameOnlyJoin.add(nN); }
+      }else{ // leave / kick
+        leftEver.add(nN);
+        const set=ensure(nN);
+        if(s.digits){ set.delete(s.digits); set.delete(NAME_ONLY_SENTINEL); }
+        else { set.clear(); } // 번호 없는 퇴장은 해당 이름의 모든 활성 입장 해제
+        if(set.size===0) activeDigitsByName.delete(nN);
       }
     }
+
+    // 최종 퇴장자 = 퇴장 이벤트가 있었고 현재 active에 없는 이름
+    const leftFinal = [...leftEver].filter(nN => !activeDigitsByName.has(nN) || activeDigitsByName.get(nN).size===0);
 
     // 2) 읽기 시트 이름열만 → 입장 대상 산출
     const readNames = await getRange(sheetId, `${readSheet}!${readCol}${READ_START_ROW}:${readCol}`);
@@ -386,6 +405,7 @@ async function runMain(){
       rosterNamesN.push(nN);
       rosterSetN.add(nN);
     }
+
     const isAttendingNameN = (nN)=> (activeDigitsByName.get(nN)?.size>0) || nameOnlyJoin.has(nN);
     const attendingSetN = new Set([...rosterSetN].filter(nN => isAttendingNameN(nN)));
 
@@ -417,21 +437,21 @@ async function runMain(){
     const writeRange = `${writeSheet}!D${WRITE_START_ROW}:S`;
     const wdata = await getRange(sheetId, writeRange);
     const rows = wdata.values || [];
-    const S_INDEX = 15;
+    const updates = [];
+    const unresolved = [];
 
+    // 결제 완료 필터 및 동명이인 집계
     const paidRowsIdx = [];
     const paidNameCountN = new Map();
     for(let i=0;i<rows.length;i++){
       const r = rows[i] || [];
       const paid = isPaid(r[5]); // I열
       if(!paid) continue;
-      const nameN = normalizeName(String(r[0] ?? ''));
+      const nameN = normalizeName(String(r[0] ?? '')); // D열
       if(!nameN) continue;
       paidRowsIdx.push(i);
       paidNameCountN.set(nameN, (paidNameCountN.get(nameN)||0)+1);
     }
-    const updates = [];
-    const unresolved = [];
 
     for(const i of paidRowsIdx){
       const r = rows[i] || [];
@@ -440,6 +460,10 @@ async function runMain(){
       const phone4  = last4Digits(r[1] ?? '');    // E
       if(!nameN) continue;
 
+      // 퇴장 최종자는 쓰지 않음
+      if(leftFinal.includes(nameN)) continue;
+
+      // 현재 입장 중이 아니라면 쓰지 않음
       if(!attendingSetN.has(nameN)) continue;
 
       const set = activeDigitsByName.get(nameN) || new Set();
@@ -469,9 +493,11 @@ async function runMain(){
     // 상단 배지
     const pills=$$('pills'); if(pills){ pills.innerHTML='';
       const mk=(t,c)=>{ const s=document.createElement('span'); s.className='pill '+c; s.textContent=t; return s; };
-      pills.appendChild(mk(`입장로그 join ${joinedCount}`,'ok'));
-      pills.appendChild(mk(`퇴장로그 leave ${leftCount}`,'bad'));
-      pills.appendChild(mk(`입장 대상(읽기시트) ${attendingSetN.size}`,'warn'));
+      pills.appendChild(mk(`입장 로그 ${joinedCount}`,'ok'));
+      pills.appendChild(mk(`퇴장/강퇴 로그 ${leftCount}`,'bad'));
+      pills.appendChild(mk(`현재 입장(읽기시트 기준) ${attendingSetN.size}`,'warn'));
+      const leftFinalCount = [...leftFinal].length;
+      pills.appendChild(mk(`최종 퇴장 ${leftFinalCount}`,'bad'));
       if(previewOnly) pills.appendChild(mk('체크만','warn'));
     }
 
@@ -487,9 +513,18 @@ async function runMain(){
       (rows||[]).forEach(r=>{ const tr=document.createElement('tr'); (r||[]).forEach(c=>{ const td=document.createElement('td'); td.textContent=(c==null?'':String(c)); tr.appendChild(td); }); tb.appendChild(tr); });
       t.appendChild(tb); wrap.appendChild(t); resultsEl.appendChild(wrap);
     }
+
     resTbl('내 명단 기준 상태(읽기 시트)', ['name','status','matched_id','notes'], report);
     resTbl('명단 외 입장자', ['name/last4 or (번호없음)'], extra);
     resTbl('미확인 목록(공유 시트 동명이인/번호 문제)', ['name','reason'], unresolved);
+
+    // 퇴장자 표 2종
+    const rosterSetNN = new Set(rosterNamesN);
+    const leftRoster = [...leftFinal].filter(nN=>rosterSetNN.has(nN)).map(nN=>[rosterNames[rosterNamesN.indexOf(nN)]||nN]);
+    const leftExtra  = [...leftFinal].filter(nN=>!rosterSetNN.has(nN)).map(nN=>[nN]);
+    resTbl('퇴장자 명단(로스터 기준)', ['name'], leftRoster);
+    resTbl('명단 외 퇴장자', ['name'], leftExtra);
+
     resTbl(previewOnly ? '예상 갱신 결과(체크만 모드)' : '공유 시트 갱신 결과',
            ['updated_cells'], updates.map(u=>[u.range+' ← 입장']));
 
@@ -504,7 +539,9 @@ function runDemo(){
     '2025.08.10 오후 8:01 - 권지혁/3788님이 입장하셨습니다',
     '2025.08.10 오후 8:03 - 홍길동님이 입장하셨습니다',
     '2025.08.10 오후 8:04 - 홍길동-1234님이 들어왔습니다',
-    '2025.08.10 오후 8:07 - 김민정 1122님이 입장했습니다'
+    '2025.08.10 오후 8:05 - 관리자님이 홍길동님을 내보냈습니다',
+    '2025.08.10 오후 8:06 - 김민정 1122님이 입장했습니다',
+    '2025.08.10 오후 8:07 - 영희님을 내보냈습니다'
   ].join('\n');
   const {events}=parseChat(chatText);
   const active=new Map(); const nameOnly=new Set(); const SENT='__NAMEONLY__';
@@ -512,11 +549,12 @@ function runDemo(){
   for(const ev of events){
     const s=splitNickname(ev.nick); if(!s) continue;
     if(ev.type==='join'){ if(s.digits) ensure(s.name).add(s.digits); else { ensure(s.name).add(SENT); nameOnly.add(s.name); } }
+    else { const set=ensure(s.name); set.clear(); if(set.size===0) active.delete(s.name); }
   }
   function table(title, rows){
     const wrap=document.createElement('div'); wrap.className='card'; const h=document.createElement('h3'); h.textContent=title; wrap.appendChild(h);
     const t=document.createElement('table'); t.innerHTML='<thead><tr><th>name</th><th>status</th></tr></thead>';
-    const tb=document.createElement('tbody'); rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent=c; tr.appendChild(td); }); tb.appendChild(tr); }); t.appendChild(tb); wrap.appendChild(t);
+    const tb=document.createElement('tbody'); rows.forEach(r=>{ const tr=document.createElement('tr'); r.forEach(c=>{ const td=document.createElement('td'); td.textContent=c; }); tb.appendChild(tr); }); t.appendChild(tb); wrap.appendChild(t);
     resultsEl.appendChild(wrap);
   }
   const rows=[]; active.forEach((set,name)=>{ const d=[...set].find(x=>x!==SENT)||''; rows.push([name, d?`입장(${d})`:'입장(번호없음)']); });
