@@ -525,7 +525,7 @@ function populatePacks(sfx){
   const packs=loadPacks(); const sel=byPanel("sheetPackSelect", sfx); if(!sel) return; sel.innerHTML='';
   const readSel=byPanel("readSheetSelect", sfx), writeSel=byPanel("writeSheetSelect", sfx);
   if(!packs.length){
-    sel.appendChild(new Option('(관리자에서 스프레드시트 연결)',''));
+    sel.appendChild(new Option('(스프레드시트 연결)',''));
     if(readSel) readSel.innerHTML=''; if(writeSel) writeSel.innerHTML='';
     return;
   }
