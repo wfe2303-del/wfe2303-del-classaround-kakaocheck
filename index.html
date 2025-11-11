@@ -670,7 +670,7 @@ async function runMain(sfx){
       (rows||[]).forEach(r=>{ const tr=document.createElement('tr'); (r||[]).forEach(c=>{ const td=document.createElement('td'); td.textContent=(c==null?'':String(c)); tr.appendChild(td); }); tb.appendChild(tr); });
       t.appendChild(tb); wrap.appendChild(t); resultsEl.appendChild(wrap);
     }
-    resTbl('내 명단 기준 상태(읽기 시트)', ['no','name','phone','status','matched_id','notes'], report);
+    resTbl('내 명단 기준 상태(읽기 시트)', ['roster_id(A)','name','phone','status','matched_id','notes'], report);
     resTbl('명단 외 입장자', ['name/last4 or (번호없음)'], extra);
     resTbl('퇴장자 명단(최종)', ['name/last4 or (번호없음)'], leavers);
     resTbl(previewOnly ? '예상 갱신 결과(체크만 모드)' : '공유 시트 갱신 결과',
@@ -706,7 +706,6 @@ function runDemo(sfx){
     '이정백/4444님이 입장하셨습니다',   // 명단 외
     '신조차모독하는천재이원철님이 입장하셨습니다',   // 명단 외
     '세계제일의규리당장찬양님이 나갔습니다.'          // 최종 퇴장 처리
-    '송지현예쁘다님을 내보냈습니다.'          // 최종 퇴장 처리
   ].join('\n');
   const {events, joinedCount, leftCount} = parseChat(chatText);
 
@@ -832,7 +831,7 @@ function runDemo(sfx){
     t.appendChild(tb); wrap.appendChild(t); resultsEl.appendChild(wrap);
   }
 
-  resTbl('명단기준 입장자(데모)', ['no','name','phone','status','matched_id','notes'], report);
+  resTbl('명단기준 입장자(데모)', ['roster_id(A)','name','phone','status','matched_id','notes'], report);
   resTbl('명단 외 입장자(데모)', ['name/last4 or (번호없음)'], extra);
   resTbl('퇴장자 명단(데모)', ['name/last4 or (번호없음)'], leavers);
   resTbl('미확인 목록(데모)', ['name','reason'], unresolved);
@@ -887,5 +886,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
 </script>
 </body>
 </html>
+
 
 
