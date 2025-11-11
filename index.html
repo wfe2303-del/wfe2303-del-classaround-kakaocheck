@@ -754,7 +754,7 @@ function runDemo(sfx){
     const isActive = set.size>0;
     const any4 = [...set].find(x=>x!==NAME_ONLY_SENTINEL) || '';
     report.push([
-      String(r.id),           // no
+      String(r.id),           // roster_id(A)
       r.name,
       r.phone,
       isActive ? '입장' : '미입장',
