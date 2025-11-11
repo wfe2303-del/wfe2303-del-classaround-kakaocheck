@@ -832,7 +832,7 @@ function runDemo(sfx){
     t.appendChild(tb); wrap.appendChild(t); resultsEl.appendChild(wrap);
   }
 
-  resTbl('명단기준 입장자(데모)', ['roster_id(A)','name','phone','status','matched_id','notes'], report);
+  resTbl('명단기준 입장자(데모)', ['no','name','phone','status','matched_id','notes'], report);
   resTbl('명단 외 입장자(데모)', ['name/last4 or (번호없음)'], extra);
   resTbl('퇴장자 명단(데모)', ['name/last4 or (번호없음)'], leavers);
   resTbl('미확인 목록(데모)', ['name','reason'], unresolved);
