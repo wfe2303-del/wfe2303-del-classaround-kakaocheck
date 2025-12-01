@@ -275,7 +275,7 @@ function normalizeName(n){
   s = s.replace(/\s+/g,' ');                                     // 공백 정리
   return s;
 }
-function isPaid(v){
+function isPaid(v){ // (남겨둠: 현재는 사용 안함)
   const s = String(v||'').trim().toLowerCase();
   if(!s) return false;
   const ns = s.replace(/\s/g,'');
@@ -599,49 +599,64 @@ async function runMain(sfx){
       });
     });
 
-    // ── 8) 공유 시트 갱신(S열)
-    const writeRange = `${writeSheet}!D${WRITE_START_ROW}:S`;
+    /* ── 8) 공유 시트 갱신(S열) — 기준: T열이 '수강생'인 행만 대상 ───────── */
+    // D~T까지 읽어서 T열 판단 (기존 D~S에서 변경)
+    const writeRange = `${writeSheet}!D${WRITE_START_ROW}:T`;
     const wdata = await getRange(sheetId, writeRange);
     const rows = wdata.values || [];
-    const paidRowsIdx = [];
-    const paidNameCountN = new Map();
-    for(let i=0;i<rows.length;i++){
+
+    // D(0)=이름, E(1)=전화, ... S(15), T(16)=수강생 여부
+    const COL_NAME = 0;   // D
+    const COL_PHONE = 1;  // E
+    const COL_T = 16;     // T
+    const isStudentCell = (v)=> String(v ?? '').replace(/\s/g,'') === '수강생';
+
+    // T열이 '수강생'인 행만 추출, 동명이인 카운트
+    const targetRowsIdx = [];
+    const targetNameCountN = new Map();
+    for (let i=0;i<rows.length;i++){
       const r = rows[i] || [];
-      const paid = isPaid(r[5]); // I열
-      if(!paid) continue;
-      const nameN = normalizeName(String(r[0] ?? '')); // D
+      if(!isStudentCell(r[COL_T])) continue;               // T열 '수강생' 아니면 스킵
+      const nameN = normalizeName(String(r[COL_NAME] ?? ''));
       if(!nameN) continue;
-      paidRowsIdx.push(i);
-      paidNameCountN.set(nameN, (paidNameCountN.get(nameN)||0)+1);
+      targetRowsIdx.push(i);
+      targetNameCountN.set(nameN, (targetNameCountN.get(nameN)||0)+1);
     }
+
     const updates = [];
     const unresolved = [];
 
-    for(const i of paidRowsIdx){
+    for (const i of targetRowsIdx){
       const r = rows[i] || [];
-      const nameRaw = String(r[0] ?? '').trim(); // D
+      const nameRaw = String(r[COL_NAME] ?? '').trim();     // D
       const nameN   = normalizeName(nameRaw);
-      const phone4  = last4Digits(r[1] ?? '');    // E
+      const phone4  = last4Digits(r[COL_PHONE] ?? '');      // E
       if(!nameN) continue;
 
-      if(!attendingSetN.has(nameN)) continue; // 최종 입장중이 아니면 기록 안 함
+      // 최종 '입장중' 이름만 S열에 기록
+      if(!attendingSetN.has(nameN)) continue;
 
-      const set = activeDigitsByName.get(nameN) || new Set();
-      const isDupInPaid = (paidNameCountN.get(nameN)||0) > 1;
+      const set   = activeDigitsByName.get(nameN) || new Set();
+      const isDup = (targetNameCountN.get(nameN)||0) > 1; // '수강생' 동명이인
 
       let canWrite = false;
-      if(isDupInPaid){
-        if(phone4 && set.has(phone4)) canWrite = true;
-        else {
-          if(set.has(NAME_ONLY_SENTINEL)) unresolved.push([nameRaw,'공유시트 동명이인 + 입장로그 번호없음']);
-          else unresolved.push([nameRaw,'공유시트 동명이인 + 번호불일치']);
+      if (isDup){
+        if (phone4 && set.has(phone4)) {
+          canWrite = true;
+        } else {
+          unresolved.push([
+            nameRaw,
+            set.has(NAME_ONLY_SENTINEL)
+              ? '공유시트 동명이인 + 입장로그 번호없음'
+              : '공유시트 동명이인 + 번호불일치'
+          ]);
         }
-      }else{
-        if(set.size >= 1 || set.has(NAME_ONLY_SENTINEL)) canWrite = true;
+      } else {
+        if (set.size >= 1 || set.has(NAME_ONLY_SENTINEL)) canWrite = true;
       }
 
-      if(canWrite){
-        const rowNumber = WRITE_START_ROW + i;
+      if (canWrite){
+        const rowNumber = WRITE_START_ROW + i; // 실제 시트 행 번호
         updates.push({ range: `${writeSheet}!S${rowNumber}`, values: [['입장']] });
       }
     }
@@ -649,6 +664,7 @@ async function runMain(sfx){
     if(updates.length && !previewOnly){
       await batchUpdateValues(sheetId, updates);
     }
+    /* ───────────────────────────────────────────────────────────────────── */
 
     // 상단 배지
     const pills=byPanel('pills',sfx); if(pills){ pills.innerHTML='';
@@ -732,7 +748,7 @@ function runDemo(sfx){
     }
   }
 
-  // ❹ 데모용 "공유 시트 결제완료" 행(D=이름, E=전화끝4) — 미확인 케이스 유도
+  // ❹ 데모용 "수강생" 행(동명이인/번호 문제 유도 용도)
   const paidRows = [
     { name: '김예은', phone4: '0000' },   // OK
     { name: '방예진', phone4: '9999' },   // OK
@@ -790,7 +806,7 @@ function runDemo(sfx){
   for(const r of paidRows){
     const nN = normalizeName(r.name);
     const set = active.get(nN) || new Set();
-    const isDupInPaid = (paidNameCountN.get(nN)||0) > 1;   // 동명이인 상황만 수집
+    const isDupInPaid = (paidNameCountN.get(nN)||0) > 1;
     if(!isDupInPaid) continue;
 
     const p4 = (r.phone4||'').trim();
@@ -888,7 +904,4 @@ document.addEventListener('DOMContentLoaded', ()=>{
 </script>
 </body>
 </html>
-
-
-
 
